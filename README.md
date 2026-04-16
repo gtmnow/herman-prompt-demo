@@ -174,3 +174,4 @@ Keep Prompt Transformer as a separate service. HermanPrompt should consume it ov
 - [Technical spec](./docs/HermanPrompt_Technical_Spec_v1.md)
 - [Engineering guide](./docs/ENGINEERING_GUIDE.md)
 - [Deployment guide](./docs/DEPLOYMENT.md)
+- [Contributor roadmap](./docs/ROADMAP.md)

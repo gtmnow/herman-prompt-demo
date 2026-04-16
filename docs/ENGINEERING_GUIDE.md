@@ -202,3 +202,4 @@ Provider-specific details should stay in logs or controlled API errors, not in a
 - Prefer changes that preserve the provider adapter boundary.
 - Avoid introducing provider-specific assumptions into shared schema or orchestration code.
 - Treat Railway as two deployables: frontend and backend.
+- Use `ROADMAP.md` for the current contributor priority order before starting a large new feature.
