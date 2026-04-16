@@ -63,6 +63,13 @@ class ChatService:
             transformation_applied = False
             bypass_reason = "prompt_transform_disabled"
 
+        # Saved history should match what the user actually saw in the transcript.
+        # If Show Details was off for this turn, we do not persist the transformed
+        # prompt text as part of the visible conversation record.
+        visible_transformed_text = (
+            transformed_prompt if payload.debug.show_details and transformation_applied else ""
+        )
+
         # The active provider adapter owns multimodal behavior and provider-specific
         # request formatting. ChatService stays responsible for product-level flow only.
         llm_response = await self.llm_client.generate_response(
@@ -75,7 +82,7 @@ class ChatService:
             conversation_id=payload.conversation_id,
             user_id_hash=payload.user_id_hash,
             user_text=raw_user_text,
-            transformed_text=transformed_prompt,
+            transformed_text=visible_transformed_text,
             assistant_text=llm_response.text,
             assistant_images=[
                 {"media_type": image.media_type, "base64_data": image.base64_data}
@@ -89,7 +96,7 @@ class ChatService:
             conversation_id=payload.conversation_id,
             turn_id=turn_id,
             user_message=MessagePayload(role="user", text=raw_user_text),
-            transformed_message=MessagePayload(role="transformed_prompt", text=transformed_prompt),
+            transformed_message=MessagePayload(role="transformed_prompt", text=visible_transformed_text),
             assistant_message=MessagePayload(role="assistant", text=llm_response.text),
             assistant_images=llm_response.generated_images,
             metadata=ChatResponseMetadata(

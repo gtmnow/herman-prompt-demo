@@ -54,7 +54,7 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
             <div className="message-body">{turn.userText}</div>
           </article>
 
-          {showDetails && turn.transformationApplied ? (
+          {showDetails && turn.transformationApplied && turn.transformedText.trim() ? (
             <article className="message-row message-transform">
               <div className="message-label">Transformed Prompt</div>
               <div className="message-body">{turn.transformedText}</div>

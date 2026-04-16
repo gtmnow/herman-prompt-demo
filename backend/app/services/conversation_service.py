@@ -87,7 +87,7 @@ class ConversationService:
             return [
                 StoredTurn(
                     user_text=turn.user_text,
-                    transformed_text=turn.transformed_text,
+                    transformed_text=turn.transformed_text or turn.user_text,
                     assistant_text=turn.assistant_text,
                 )
                 for turn in conversation.turns
@@ -158,7 +158,7 @@ class ConversationService:
             for index, turn in enumerate(conversation.turns, start=1):
                 lines.append(f"Turn {index}")
                 lines.append(f"You: {turn.user_text}")
-                if turn.transformation_applied:
+                if turn.transformation_applied and turn.transformed_text.strip():
                     lines.append(f"Transformed Prompt: {turn.transformed_text}")
                 lines.append(f"Assistant: {turn.assistant_text}")
                 lines.append("")
