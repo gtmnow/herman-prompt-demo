@@ -802,10 +802,6 @@ input {
     font-size: 0.92rem;
   }
 
-  .theme-badge {
-    order: -1;
-  }
-
   .composer-shell {
     grid-template-columns: 1fr;
     gap: 12px;
@@ -918,7 +914,7 @@ input {
   }
 
   .composer-input {
-    min-height: 110px;
+    min-height: 72px;
   }
 
   .attachment-name {

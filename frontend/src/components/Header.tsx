@@ -45,7 +45,6 @@ export function Header({
       </div>
 
       <div className="topbar-controls">
-        <span className="theme-badge">{theme}</span>
         <label className="profile-picker">
           <span className="profile-picker-label">Profile</span>
           <select
