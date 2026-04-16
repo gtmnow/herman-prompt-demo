@@ -18,7 +18,8 @@ docs/        technical specs, PRD-derived notes, engineering docs
 - Light/dark themes
 - `Show Details` toggle for inline transformed prompt display
 - `Use Transformer` toggle to compare transformed vs raw LLM behavior
-- In-memory conversation context on the backend
+- Persistent conversation history with a collapsible left sidebar
+- Saved conversation reopen, plain-text export, and delete actions
 - Feedback capture and persistence
 - File upload support for documents and images
 - Image analysis and OpenAI-specific image generation path
@@ -163,11 +164,12 @@ Keep Prompt Transformer as a separate service. HermanPrompt should consume it ov
 
 ## Current Limitations
 
-- Conversation history is not persisted yet.
+- Conversation history is persisted, but rename/archive and attachment-level history management are not implemented yet.
 - Authentication is not implemented yet.
 - Admin configuration UI is not implemented yet.
 - The OpenAI adapter is the only real provider implementation today.
 - Image generation support is provider-specific and gated by the configured model.
+- Local development uses SQLite unless `DATABASE_URL` is explicitly set; deployed environments should use PostgreSQL.
 
 ## Engineering Docs
 

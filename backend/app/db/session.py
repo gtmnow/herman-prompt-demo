@@ -11,12 +11,14 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def initialize_database() -> None:
+    from app.models.conversation import Conversation, ConversationTurn
     from app.models.feedback import Feedback
 
+    _ = Conversation
+    _ = ConversationTurn
     _ = Feedback
     Base.metadata.create_all(bind=engine)
 
 
 def get_session() -> Session:
     return SessionLocal()
-

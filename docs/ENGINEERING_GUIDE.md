@@ -58,11 +58,11 @@ This is the main orchestration flow for a chat turn.
 Important sequence:
 
 1. Extract the latest user text
-2. Load prior turn memory from the in-process store
+2. Load prior turn memory from persisted conversation history
 3. Decide whether Prompt Transformer is enabled
 4. Call Prompt Transformer or bypass it
 5. Call the active LLM provider
-6. Append the new turn to in-memory conversation state
+6. Append the new turn to the conversation record in the database
 7. Return the normalized transcript payload
 
 ### `backend/app/services/providers/`
@@ -89,17 +89,22 @@ This is intentionally thin. It exists so the API layer does not know which provi
 
 This is also intentionally thin. It resolves the active provider adapter and delegates generation there.
 
-### `backend/app/services/conversation_store.py`
+### `backend/app/services/conversation_service.py`
 
-Conversation memory is currently in-process only.
+Conversation history is now persisted through the HermanPrompt database.
 
-That means:
+Current behavior:
 
-- it survives across turns only while the process is running
-- it is cleared by restarts or deploys
-- it is not suitable for production history
+- conversations are stored per `user_id_hash`
+- each turn stores user text, transformed text, assistant text, generated images, and timestamps
+- the sidebar loads conversation summaries from the backend
+- reopening a conversation reloads turns from the database
+- each saved conversation row supports plain-text export and delete actions
 
-Treat this as demo scaffolding, not the final persistence design.
+Important caveat:
+
+- local development still uses SQLite unless `DATABASE_URL` is explicitly set
+- Railway should use PostgreSQL for persistent history
 
 ## Frontend Walkthrough
 

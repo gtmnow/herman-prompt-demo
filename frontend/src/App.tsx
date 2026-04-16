@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Composer, type UploadedAttachment } from "./components/Composer";
+import { ConversationSidebar, type ConversationSummary } from "./components/ConversationSidebar";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { Header } from "./components/Header";
 import { Transcript, type TranscriptTurn } from "./components/Transcript";
@@ -9,7 +10,7 @@ const DEMO_RESPONSE =
   "This is a starter scaffold response. The real app will replace this with the configured LLM output.";
 
 function createConversationId() {
-  return `conv_${Math.random().toString(36).slice(2, 10)}`;
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export function App() {
@@ -27,6 +28,11 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [conversationNotice, setConversationNotice] = useState<string | null>(null);
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [conversationListError, setConversationListError] = useState<string | null>(null);
+  const [conversationActionBusy, setConversationActionBusy] = useState(false);
   const [feedbackDraft, setFeedbackDraft] = useState<{
     turnId: string;
     feedbackType: "up" | "down";
@@ -42,6 +48,14 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (!bootstrap.userIdHash) {
+      return;
+    }
+
+    void loadConversationSummaries();
+  }, [bootstrap.userIdHash]);
 
   async function handleSubmit() {
     const message = draft.trim() || (attachments.length > 0 ? "Please analyze the attached content." : "");
@@ -85,6 +99,7 @@ export function App() {
 
       const payload = (await response.json()) as {
         turn_id: string;
+        conversation_id: string;
         user_message: { text: string };
         transformed_message: { text: string };
         assistant_message: { text: string };
@@ -113,10 +128,12 @@ export function App() {
           feedbackStatus: "idle",
         },
       ]);
+      setConversationId(payload.conversation_id.replace(/^conv_/, ""));
       setDraft("");
       setAttachments([]);
       setUploadError(null);
       setConversationNotice(null);
+      void loadConversationSummaries();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Something went wrong.");
     } finally {
@@ -288,6 +305,171 @@ export function App() {
     );
   }
 
+  async function loadConversationSummaries() {
+    if (!bootstrap.userIdHash) {
+      return;
+    }
+
+    setLoadingConversations(true);
+    setConversationListError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversations?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
+      );
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to load conversations.");
+        throw new Error(errorMessage);
+      }
+
+      const payload = (await response.json()) as {
+        conversations: { id: string; title: string; created_at: string; updated_at: string }[];
+      };
+
+      setConversations(
+        payload.conversations.map((conversation) => ({
+          id: conversation.id,
+          title: conversation.title,
+          createdAt: conversation.created_at,
+          updatedAt: conversation.updated_at,
+        })),
+      );
+    } catch (loadError) {
+      setConversations([]);
+      setConversationListError(loadError instanceof Error ? loadError.message : "Unable to load conversations.");
+    } finally {
+      setLoadingConversations(false);
+    }
+  }
+
+  async function loadConversation(conversationId: string) {
+    if (!bootstrap.userIdHash) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversations/${conversationId}?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
+      );
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to load conversation.");
+        throw new Error(errorMessage);
+      }
+
+      const payload = (await response.json()) as {
+        id: string;
+        turns: {
+          id: string;
+          user_text: string;
+          transformed_text: string;
+          assistant_text: string;
+          transformation_applied: boolean;
+          assistant_images: { media_type: string; base64_data: string }[];
+        }[];
+      };
+
+      setConversationId(payload.id.replace(/^conv_/, ""));
+      setTurns(
+        payload.turns.map((turn) => ({
+          id: turn.id,
+          userText: turn.user_text,
+          transformedText: turn.transformed_text,
+          assistantText: turn.assistant_text,
+          transformationApplied: turn.transformation_applied,
+          assistantImages: turn.assistant_images.map((image) => ({
+            mediaType: image.media_type,
+            base64Data: image.base64_data,
+          })),
+          feedbackStatus: "idle",
+        })),
+      );
+      setConversationNotice("Loaded saved conversation.");
+      setDraft("");
+      setAttachments([]);
+      setUploadError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load conversation.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startNewConversation() {
+    setConversationId(createConversationId());
+    setTurns([]);
+    setDraft("");
+    setAttachments([]);
+    setUploadError(null);
+    setError(null);
+    setFeedbackDraft(null);
+    setConversationNotice("Started a new conversation.");
+  }
+
+  async function deleteConversation(targetConversationId: string) {
+    if (!bootstrap.userIdHash || !window.confirm("Delete this conversation?")) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversations/${targetConversationId}?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to delete conversation.");
+        throw new Error(errorMessage);
+      }
+
+      if (`conv_${conversationId}` === targetConversationId) {
+        startNewConversation();
+      }
+      await loadConversationSummaries();
+      setConversationNotice("Conversation deleted.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversation.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
+  async function exportConversation(targetConversationId: string) {
+    if (!bootstrap.userIdHash) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversations/${targetConversationId}/export?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
+      );
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to export conversation.");
+        throw new Error(errorMessage);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = `${targetConversationId}.txt`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to export conversation.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
   if (!bootstrap.userIdHash) {
     return (
       <main className="app-shell">
@@ -319,6 +501,21 @@ export function App() {
         onToggleTransform={() => resetConversation(!transformEnabled)}
         onChangeSummaryType={applySummaryType}
       />
+      <div className="chat-layout">
+        <ConversationSidebar
+          actionBusy={conversationActionBusy}
+          activeConversationId={`conv_${conversationId}`}
+          collapsed={sidebarCollapsed}
+          conversations={conversations}
+          error={conversationListError}
+          loading={loadingConversations}
+          onDeleteConversation={deleteConversation}
+          onExportConversation={exportConversation}
+          onSelectConversation={loadConversation}
+          onStartConversation={startNewConversation}
+          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        />
+        <div className="chat-main">
       {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
       <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
       {error ? <div className="error-banner">{error}</div> : null}
@@ -337,6 +534,8 @@ export function App() {
         }
         onSubmit={handleSubmit}
       />
+        </div>
+      </div>
       {feedbackDraft ? (
         <FeedbackModal
           comments={feedbackDraft.comments}

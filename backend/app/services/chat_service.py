@@ -1,10 +1,11 @@
-from uuid import uuid4
-
 from app.core.config import settings
 from app.schemas.chat import (
     ChatResponseMetadata,
     ChatSendRequest,
     ChatSendResponse,
+    ConversationDetailResponse,
+    ConversationDeleteResponse,
+    ConversationListResponse,
     FeedbackRequest,
     FeedbackResponse,
     LlmMetadata,
@@ -14,10 +15,7 @@ from app.schemas.chat import (
 from app.services.llm_client import LlmClient
 from app.services.transformer_client import TransformerClient
 from app.services.feedback_service import FeedbackService
-from app.services.conversation_store import ConversationStore, StoredTurn
-
-
-conversation_store = ConversationStore()
+from app.services.conversation_service import ConversationService
 
 
 class ChatService:
@@ -25,13 +23,14 @@ class ChatService:
         self.transformer_client = TransformerClient()
         self.llm_client = LlmClient()
         self.feedback_service = FeedbackService()
-        self.conversation_store = conversation_store
+        self.conversation_service = ConversationService()
 
     async def send_turn(self, payload: ChatSendRequest) -> ChatSendResponse:
         raw_user_text = payload.latest_user_text()
-        # Conversation memory is intentionally in-process for the demo. This gives the
-        # LLM prior turn context without introducing persistent chat storage yet.
-        conversation_history = self.conversation_store.get_turns(payload.conversation_id)
+        conversation_history = self.conversation_service.get_turn_history(
+            conversation_id=payload.conversation_id,
+            user_id_hash=payload.user_id_hash,
+        )
         transformer_metadata: dict[str, object]
 
         if payload.debug.transform_enabled:
@@ -72,18 +71,23 @@ class ChatService:
             attachments=payload.attachments,
         )
 
-        self.conversation_store.append_turn(
-            payload.conversation_id,
-            StoredTurn(
-                user_text=raw_user_text,
-                transformed_text=transformed_prompt,
-                assistant_text=llm_response.text,
-            ),
+        turn_id = self.conversation_service.append_turn(
+            conversation_id=payload.conversation_id,
+            user_id_hash=payload.user_id_hash,
+            user_text=raw_user_text,
+            transformed_text=transformed_prompt,
+            assistant_text=llm_response.text,
+            assistant_images=[
+                {"media_type": image.media_type, "base64_data": image.base64_data}
+                for image in llm_response.generated_images
+            ],
+            transformation_applied=transformation_applied,
+            summary_type=payload.summary_type,
         )
 
         return ChatSendResponse(
             conversation_id=payload.conversation_id,
-            turn_id=f"turn_{uuid4().hex[:8]}",
+            turn_id=turn_id,
             user_message=MessagePayload(role="user", text=raw_user_text),
             transformed_message=MessagePayload(role="transformed_prompt", text=transformed_prompt),
             assistant_message=MessagePayload(role="assistant", text=llm_response.text),
@@ -110,3 +114,24 @@ class ChatService:
     async def save_feedback(self, payload: FeedbackRequest) -> FeedbackResponse:
         self.feedback_service.save_feedback(payload)
         return FeedbackResponse(status="saved")
+
+    async def list_conversations(self, *, user_id_hash: str) -> ConversationListResponse:
+        return self.conversation_service.list_conversations(user_id_hash=user_id_hash)
+
+    async def get_conversation(self, *, conversation_id: str, user_id_hash: str) -> ConversationDetailResponse:
+        return self.conversation_service.get_conversation_detail(
+            conversation_id=conversation_id,
+            user_id_hash=user_id_hash,
+        )
+
+    async def delete_conversation(self, *, conversation_id: str, user_id_hash: str) -> ConversationDeleteResponse:
+        return self.conversation_service.delete_conversation(
+            conversation_id=conversation_id,
+            user_id_hash=user_id_hash,
+        )
+
+    async def export_conversation_text(self, *, conversation_id: str, user_id_hash: str) -> tuple[str, str]:
+        return self.conversation_service.export_conversation_text(
+            conversation_id=conversation_id,
+            user_id_hash=user_id_hash,
+        )

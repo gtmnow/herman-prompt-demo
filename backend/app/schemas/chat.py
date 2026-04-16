@@ -101,6 +101,40 @@ class ChatSendResponse(BaseModel):
     metadata: ChatResponseMetadata
 
 
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummary] = Field(default_factory=list)
+
+
+class ConversationTurnPayload(BaseModel):
+    id: str
+    user_text: str
+    transformed_text: str
+    assistant_text: str
+    assistant_images: list["GeneratedImagePayload"] = Field(default_factory=list)
+    transformation_applied: bool
+    created_at: str
+
+
+class ConversationDetailResponse(BaseModel):
+    id: str
+    title: str
+    user_id_hash: str
+    created_at: str
+    updated_at: str
+    turns: list[ConversationTurnPayload] = Field(default_factory=list)
+
+
+class ConversationDeleteResponse(BaseModel):
+    status: Literal["deleted"]
+
+
 class FeedbackRequest(BaseModel):
     turn_id: str = Field(min_length=1)
     conversation_id: str = Field(min_length=1)

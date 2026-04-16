@@ -110,7 +110,25 @@ export function Composer({
       {uploading ? <div className="composer-note">Uploading attachment...</div> : null}
       <div className="composer-actions">
         <label className="attach-button" htmlFor="composer-file-input">
-          +
+          <svg aria-hidden="true" className="attach-icon" viewBox="0 0 24 24">
+            <path
+              d="M9 3.5h5.4L18.5 7v11.1c0 .8-.6 1.4-1.4 1.4H9c-.8 0-1.4-.6-1.4-1.4V4.9c0-.8.6-1.4 1.4-1.4Z"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.6"
+            />
+            <path d="M14.3 3.8v3.1h3.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+            <path
+              d="M12 14.2V9.1m0 0 2.4 2.4M12 9.1l-2.4 2.4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+          </svg>
         </label>
         <button
           className="send-button"
