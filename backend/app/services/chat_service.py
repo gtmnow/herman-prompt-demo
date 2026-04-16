@@ -29,6 +29,8 @@ class ChatService:
 
     async def send_turn(self, payload: ChatSendRequest) -> ChatSendResponse:
         raw_user_text = payload.latest_user_text()
+        # Conversation memory is intentionally in-process for the demo. This gives the
+        # LLM prior turn context without introducing persistent chat storage yet.
         conversation_history = self.conversation_store.get_turns(payload.conversation_id)
         transformer_metadata: dict[str, object]
 
@@ -61,6 +63,8 @@ class ChatService:
             transformation_applied = False
             bypass_reason = "prompt_transform_disabled"
 
+        # The active provider adapter owns multimodal behavior and provider-specific
+        # request formatting. ChatService stays responsible for product-level flow only.
         llm_response = await self.llm_client.generate_response(
             transformed_prompt=transformed_prompt,
             conversation_history=conversation_history,

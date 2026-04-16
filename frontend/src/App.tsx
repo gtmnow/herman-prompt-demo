@@ -42,7 +42,7 @@ export function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-async function handleSubmit() {
+  async function handleSubmit() {
     const message = draft.trim() || (attachments.length > 0 ? "Please analyze the attached content." : "");
     if (!bootstrap.userIdHash || !message || loading || uploading) {
       return;
@@ -94,6 +94,8 @@ async function handleSubmit() {
         };
       };
 
+      // Transcript rows are stored in the same shape the UI renders so future changes
+      // to display logic stay localized to the frontend rather than leaking into the API.
       setTurns((current) => [
         ...current,
         {
@@ -251,6 +253,8 @@ async function handleSubmit() {
   }
 
   function resetConversation(nextTransformEnabled: boolean) {
+    // Transformer on/off is treated as a mode boundary. Resetting the conversation keeps
+    // prior transformed context from influencing the raw LLM comparison mode and vice versa.
     setTransformEnabled(nextTransformEnabled);
     setConversationId(createConversationId());
     setTurns([]);

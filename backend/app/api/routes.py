@@ -23,6 +23,8 @@ async def health() -> dict[str, str]:
 
 @router.post("/chat/send", response_model=ChatSendResponse)
 async def send_chat_turn(payload: ChatSendRequest) -> ChatSendResponse:
+    # Route-level error mapping keeps provider and orchestration code focused on domain
+    # behavior while the API layer translates failures into predictable HTTP responses.
     try:
         return await chat_service.send_turn(payload)
     except ValueError as exc:

@@ -7,6 +7,9 @@ from app.core.config import settings
 
 class TransformerClient:
     async def transform_prompt(self, *, session_id: str, user_id: str, raw_prompt: str) -> dict[str, Any]:
+        # HermanPrompt never computes personas itself. It always delegates prompt
+        # shaping to the standalone Prompt Transformer service so the middleware
+        # layer can be shared across multiple UI experiences.
         payload = {
             "session_id": session_id,
             "user_id": user_id,
@@ -24,4 +27,3 @@ class TransformerClient:
             raise RuntimeError("Prompt Transformer request failed.")
 
         return response.json()
-

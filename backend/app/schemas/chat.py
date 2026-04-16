@@ -32,6 +32,9 @@ class ChatSendRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_chat_input(self) -> "ChatSendRequest":
+        # The backend accepts either a simple single-message contract or a future-ready
+        # messages array. The current frontend uses message_text, but keeping both paths
+        # documented in the schema makes the API easier to evolve.
         if self.message_text and self.message_text.strip():
             return self
 

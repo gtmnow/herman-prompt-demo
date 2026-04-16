@@ -63,6 +63,9 @@ class OpenAIAdapter(ProviderAdapter):
         if wants_image_generation and not _supports_openai_image_generation(settings.llm_model):
             raise UnsupportedCapabilityError()
 
+        # Responses API input is assembled from prior transformed turns plus the newest
+        # transformed instruction. Image attachments are added to the latest user turn,
+        # while document attachments are routed through code_interpreter.
         payload: dict[str, Any] = {
             "model": settings.llm_model,
             "input": _build_input_items(
@@ -163,6 +166,8 @@ def _build_tools(
     tools: list[dict[str, Any]] = []
 
     if document_attachments:
+        # Documents are passed via code_interpreter so OpenAI can inspect Word/PDF
+        # content without HermanPrompt owning a local extraction pipeline.
         tools.append(
             {
                 "type": "code_interpreter",
@@ -197,6 +202,8 @@ def _build_input_items(
     input_items: list[dict[str, Any]] = []
 
     for turn in conversation_history:
+        # The demo stores only the transformed user instruction and assistant text for
+        # prior turns. Raw user text is a UI/debug concern and is not replayed here.
         input_items.append(
             {
                 "role": "user",
