@@ -7,6 +7,7 @@ export type ConversationSummary = {
 
 type ConversationSidebarProps = {
   collapsed: boolean;
+  isMobile: boolean;
   conversations: ConversationSummary[];
   error: string | null;
   activeConversationId: string;
@@ -21,6 +22,7 @@ type ConversationSidebarProps = {
 
 export function ConversationSidebar({
   collapsed,
+  isMobile,
   conversations,
   error,
   activeConversationId,
@@ -33,7 +35,7 @@ export function ConversationSidebar({
   onExportConversation,
 }: ConversationSidebarProps) {
   return (
-    <aside className={`conversation-sidebar ${collapsed ? "is-collapsed" : ""}`}>
+    <aside className={`conversation-sidebar ${collapsed ? "is-collapsed" : ""} ${isMobile ? "is-mobile" : ""}`}>
       <div className="conversation-sidebar-header">
         <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
           {collapsed ? ">" : "<"}

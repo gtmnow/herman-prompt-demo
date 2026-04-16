@@ -1,4 +1,6 @@
 type HeaderProps = {
+  isMobile: boolean;
+  onOpenSidebar: () => void;
   showDetails: boolean;
   transformEnabled: boolean;
   summaryType: number | null;
@@ -9,6 +11,8 @@ type HeaderProps = {
 };
 
 export function Header({
+  isMobile,
+  onOpenSidebar,
   showDetails,
   transformEnabled,
   summaryType,
@@ -19,9 +23,25 @@ export function Header({
 }: HeaderProps) {
   return (
     <header className="topbar">
-      <div className="brand-lockup" aria-label="HermanPrompt">
-        <span className="brand-herman">HERMAN</span>
-        <span className="brand-prompt">PROMPT</span>
+      <div className="topbar-brand-group">
+        {isMobile ? (
+          <button aria-label="Open conversations" className="mobile-sidebar-button" type="button" onClick={onOpenSidebar}>
+            <svg aria-hidden="true" className="mobile-sidebar-icon" viewBox="0 0 24 24">
+              <path
+                d="M4.5 7.5h15m-15 4.5h15m-15 4.5h15"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          </button>
+        ) : null}
+        <div className="brand-lockup" aria-label="HermanPrompt">
+          <span className="brand-herman">HERMAN</span>
+          <span className="brand-prompt">PROMPT</span>
+        </div>
       </div>
 
       <div className="topbar-controls">

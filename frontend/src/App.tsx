@@ -15,6 +15,7 @@ function createConversationId() {
 
 export function App() {
   const bootstrap = getBootstrapState(window.location.search);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
   const [showDetails, setShowDetails] = useState(bootstrap.showDetails);
   const [transformEnabled, setTransformEnabled] = useState(bootstrap.transformEnabled);
   const [summaryType, setSummaryType] = useState<number | null>(bootstrap.summaryType);
@@ -29,7 +30,7 @@ export function App() {
   const [conversationNotice, setConversationNotice] = useState<string | null>(null);
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia("(max-width: 860px)").matches);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationActionBusy, setConversationActionBusy] = useState(false);
@@ -48,6 +49,20 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 860px)");
+    const syncViewport = (matches: boolean) => {
+      setIsMobile(matches);
+      setSidebarCollapsed(matches);
+    };
+
+    syncViewport(mediaQuery.matches);
+
+    const listener = (event: MediaQueryListEvent) => syncViewport(event.matches);
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  }, []);
 
   useEffect(() => {
     if (!bootstrap.userIdHash) {
@@ -391,6 +406,9 @@ export function App() {
       setDraft("");
       setAttachments([]);
       setUploadError(null);
+      if (isMobile) {
+        setSidebarCollapsed(true);
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load conversation.");
     } finally {
@@ -406,6 +424,9 @@ export function App() {
     setUploadError(null);
     setError(null);
     setFeedbackDraft(null);
+    if (isMobile) {
+      setSidebarCollapsed(true);
+    }
     setConversationNotice("Started a new conversation.");
   }
 
@@ -430,6 +451,9 @@ export function App() {
         startNewConversation();
       }
       await loadConversationSummaries();
+      if (isMobile) {
+        setSidebarCollapsed(true);
+      }
       setConversationNotice("Conversation deleted.");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversation.");
@@ -474,6 +498,8 @@ export function App() {
     return (
       <main className="app-shell">
         <Header
+          isMobile={isMobile}
+          onOpenSidebar={() => setSidebarCollapsed(false)}
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
@@ -493,6 +519,8 @@ export function App() {
   return (
     <main className="app-shell">
       <Header
+        isMobile={isMobile}
+        onOpenSidebar={() => setSidebarCollapsed(false)}
         showDetails={showDetails}
         transformEnabled={transformEnabled}
         summaryType={summaryType}
@@ -502,10 +530,14 @@ export function App() {
         onChangeSummaryType={applySummaryType}
       />
       <div className="chat-layout">
+        {isMobile && !sidebarCollapsed ? (
+          <button aria-label="Close conversations" className="sidebar-backdrop" type="button" onClick={() => setSidebarCollapsed(true)} />
+        ) : null}
         <ConversationSidebar
           actionBusy={conversationActionBusy}
           activeConversationId={`conv_${conversationId}`}
           collapsed={sidebarCollapsed}
+          isMobile={isMobile}
           conversations={conversations}
           error={conversationListError}
           loading={loadingConversations}
