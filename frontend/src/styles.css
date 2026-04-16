@@ -106,6 +106,25 @@ input {
   gap: 14px;
 }
 
+.profile-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-picker-label {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.profile-picker-select {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--text);
+}
+
 .theme-badge {
   padding: 4px 10px;
   border: 1px solid var(--border);

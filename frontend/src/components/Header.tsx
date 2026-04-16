@@ -1,12 +1,22 @@
 type HeaderProps = {
   showDetails: boolean;
   transformEnabled: boolean;
+  summaryType: number | null;
   theme: "dark" | "light";
   onToggleDetails: () => void;
   onToggleTransform: () => void;
+  onChangeSummaryType: (summaryType: number | null) => void;
 };
 
-export function Header({ showDetails, transformEnabled, theme, onToggleDetails, onToggleTransform }: HeaderProps) {
+export function Header({
+  showDetails,
+  transformEnabled,
+  summaryType,
+  theme,
+  onToggleDetails,
+  onToggleTransform,
+  onChangeSummaryType,
+}: HeaderProps) {
   return (
     <header className="topbar">
       <div className="brand-lockup" aria-label="HermanPrompt">
@@ -16,6 +26,25 @@ export function Header({ showDetails, transformEnabled, theme, onToggleDetails, 
 
       <div className="topbar-controls">
         <span className="theme-badge">{theme}</span>
+        <label className="profile-picker">
+          <span className="profile-picker-label">Profile</span>
+          <select
+            aria-label="Select demo profile type"
+            className="profile-picker-select"
+            value={summaryType ?? ""}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              onChangeSummaryType(nextValue ? Number(nextValue) : null);
+            }}
+          >
+            <option value="">User Default</option>
+            {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => (
+              <option key={value} value={value}>
+                Type {value}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="toggle">
           <span className="toggle-label">Use Transformer</span>
           <button

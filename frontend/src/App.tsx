@@ -16,6 +16,7 @@ export function App() {
   const bootstrap = getBootstrapState(window.location.search);
   const [showDetails, setShowDetails] = useState(bootstrap.showDetails);
   const [transformEnabled, setTransformEnabled] = useState(bootstrap.transformEnabled);
+  const [summaryType, setSummaryType] = useState<number | null>(bootstrap.summaryType);
   const [theme] = useState<ThemeMode>(bootstrap.theme);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
@@ -61,6 +62,7 @@ export function App() {
           user_id_hash: bootstrap.userIdHash,
           conversation_id: `conv_${conversationId}`,
           message_text: message,
+          summary_type: summaryType,
           attachments: attachments.map((attachment) => ({
             id: attachment.id,
             kind: attachment.kind,
@@ -270,15 +272,33 @@ export function App() {
     );
   }
 
+  function applySummaryType(nextSummaryType: number | null) {
+    setSummaryType(nextSummaryType);
+    setConversationId(createConversationId());
+    setTurns([]);
+    setDraft("");
+    setAttachments([]);
+    setUploadError(null);
+    setError(null);
+    setFeedbackDraft(null);
+    setConversationNotice(
+      nextSummaryType === null
+        ? "Conversation reset. Using the selected user's default profile."
+        : `Conversation reset. Using demo profile type ${nextSummaryType}.`,
+    );
+  }
+
   if (!bootstrap.userIdHash) {
     return (
       <main className="app-shell">
         <Header
           showDetails={showDetails}
           transformEnabled={transformEnabled}
+          summaryType={summaryType}
           theme={theme}
           onToggleDetails={() => setShowDetails((value) => !value)}
           onToggleTransform={() => resetConversation(!transformEnabled)}
+          onChangeSummaryType={applySummaryType}
         />
         <section className="blocking-state">
           <h1>Missing user_id_hash</h1>
@@ -293,9 +313,11 @@ export function App() {
       <Header
         showDetails={showDetails}
         transformEnabled={transformEnabled}
+        summaryType={summaryType}
         theme={theme}
         onToggleDetails={() => setShowDetails((value) => !value)}
         onToggleTransform={() => resetConversation(!transformEnabled)}
+        onChangeSummaryType={applySummaryType}
       />
       {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
       <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />

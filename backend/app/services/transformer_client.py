@@ -6,7 +6,14 @@ from app.core.config import settings
 
 
 class TransformerClient:
-    async def transform_prompt(self, *, session_id: str, user_id: str, raw_prompt: str) -> dict[str, Any]:
+    async def transform_prompt(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        raw_prompt: str,
+        summary_type: int | None = None,
+    ) -> dict[str, Any]:
         # HermanPrompt never computes personas itself. It always delegates prompt
         # shaping to the standalone Prompt Transformer service so the middleware
         # layer can be shared across multiple UI experiences.
@@ -19,6 +26,8 @@ class TransformerClient:
                 "model": settings.llm_model,
             },
         }
+        if summary_type is not None:
+            payload["summary_type"] = summary_type
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(f"{settings.prompt_transformer_url}/api/transform_prompt", json=payload)

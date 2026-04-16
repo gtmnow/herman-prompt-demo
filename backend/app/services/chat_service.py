@@ -39,6 +39,7 @@ class ChatService:
                 session_id=payload.conversation_id,
                 user_id=payload.user_id_hash,
                 raw_prompt=raw_user_text,
+                summary_type=payload.summary_type,
             )
             transformed_prompt = transformed.get("transformed_prompt", "")
             transformer_metadata = transformed.get("metadata", {})

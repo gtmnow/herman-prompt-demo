@@ -28,6 +28,7 @@ class ChatSendRequest(BaseModel):
     message_text: str | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
     attachments: list[AttachmentReference] = Field(default_factory=list)
+    summary_type: int | None = Field(default=None, ge=1, le=9)
     debug: DebugOptions = Field(default_factory=DebugOptions)
 
     @model_validator(mode="after")
