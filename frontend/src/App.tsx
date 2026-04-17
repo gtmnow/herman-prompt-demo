@@ -4,22 +4,48 @@ import { ConversationSidebar, type ConversationSummary } from "./components/Conv
 import { FeedbackModal } from "./components/FeedbackModal";
 import { Header } from "./components/Header";
 import { Transcript, type TranscriptTurn } from "./components/Transcript";
-import { getBootstrapState, type ThemeMode } from "./lib/queryParams";
+import { getLaunchParams, type ThemeMode } from "./lib/queryParams";
 
 const DEMO_RESPONSE =
   "This is a starter scaffold response. The real app will replace this with the configured LLM output.";
+
+type SessionBootstrap = {
+  access_token: string;
+  expires_at: number;
+  auth_mode: string;
+  user_id_hash: string;
+  display_name: string;
+  tenant_id: string;
+  features: {
+    show_details?: boolean;
+    attachments?: boolean;
+    transformer_toggle?: boolean;
+  };
+  branding: {
+    app_name?: string;
+    theme?: ThemeMode;
+  };
+  debug: {
+    show_details?: boolean;
+    transform_enabled?: boolean;
+    summary_type?: number | null;
+  };
+};
 
 function createConversationId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
 export function App() {
-  const bootstrap = getBootstrapState(window.location.search);
+  const launchParams = getLaunchParams(window.location.search);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
-  const [showDetails, setShowDetails] = useState(bootstrap.showDetails);
-  const [transformEnabled, setTransformEnabled] = useState(bootstrap.transformEnabled);
-  const [summaryType, setSummaryType] = useState<number | null>(bootstrap.summaryType);
-  const [theme] = useState<ThemeMode>(bootstrap.theme);
+  const [session, setSession] = useState<SessionBootstrap | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(launchParams.showDetails);
+  const [transformEnabled, setTransformEnabled] = useState(launchParams.transformEnabled);
+  const [summaryType, setSummaryType] = useState<number | null>(launchParams.summaryType);
+  const [theme, setTheme] = useState<ThemeMode>(launchParams.theme);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -47,6 +73,72 @@ export function App() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrapSession() {
+      setSessionLoading(true);
+      setSessionError(null);
+
+      try {
+        const params = new URLSearchParams();
+        params.set("show_details", String(launchParams.showDetails));
+        params.set("transform_enabled", String(launchParams.transformEnabled));
+        params.set("theme", launchParams.theme);
+        if (launchParams.summaryType !== null) {
+          params.set("summary_type", String(launchParams.summaryType));
+        }
+        if (launchParams.demoUserIdHash) {
+          params.set("user_id_hash", launchParams.demoUserIdHash);
+        }
+        if (launchParams.launchToken) {
+          params.set("launch_token", launchParams.launchToken);
+        }
+
+        const response = await fetch(`${apiBaseUrl}/api/session/bootstrap?${params.toString()}`);
+        if (!response.ok) {
+          const errorMessage = await extractErrorMessage(response, "Unable to initialize authenticated session.");
+          throw new Error(errorMessage);
+        }
+
+        const payload = (await response.json()) as SessionBootstrap;
+        if (cancelled) {
+          return;
+        }
+
+        setSession(payload);
+        setShowDetails(payload.debug.show_details ?? launchParams.showDetails);
+        setTransformEnabled(payload.debug.transform_enabled ?? launchParams.transformEnabled);
+        setSummaryType(payload.debug.summary_type ?? launchParams.summaryType);
+        setTheme(payload.branding.theme ?? launchParams.theme);
+      } catch (bootstrapError) {
+        if (!cancelled) {
+          setSession(null);
+          setSessionError(
+            bootstrapError instanceof Error ? bootstrapError.message : "Unable to initialize session.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionLoading(false);
+        }
+      }
+    }
+
+    void bootstrapSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    apiBaseUrl,
+    launchParams.demoUserIdHash,
+    launchParams.launchToken,
+    launchParams.showDetails,
+    launchParams.summaryType,
+    launchParams.theme,
+    launchParams.transformEnabled,
+  ]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
@@ -65,16 +157,26 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!bootstrap.userIdHash) {
+    if (!session?.access_token) {
       return;
     }
 
     void loadConversationSummaries();
-  }, [bootstrap.userIdHash]);
+  }, [session?.access_token]);
+
+  function getAuthHeaders(): Record<string, string> {
+    if (!session) {
+      return {};
+    }
+
+    return {
+      Authorization: `Bearer ${session.access_token}`,
+    };
+  }
 
   async function handleSubmit() {
     const message = draft.trim() || (attachments.length > 0 ? "Please analyze the attached content." : "");
-    if (!bootstrap.userIdHash || !message || loading || uploading) {
+    if (!session || !message || loading || uploading) {
       return;
     }
 
@@ -86,9 +188,9 @@ export function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          user_id_hash: bootstrap.userIdHash,
           conversation_id: `conv_${conversationId}`,
           message_text: message,
           summary_type: summaryType,
@@ -126,8 +228,6 @@ export function App() {
         };
       };
 
-      // Transcript rows are stored in the same shape the UI renders so future changes
-      // to display logic stay localized to the frontend rather than leaking into the API.
       setTurns((current) => [
         ...current,
         {
@@ -157,7 +257,7 @@ export function App() {
   }
 
   async function uploadFiles(files: FileList | null) {
-    if (!files || files.length === 0) {
+    if (!files || files.length === 0 || !session) {
       return;
     }
 
@@ -173,6 +273,7 @@ export function App() {
 
         const response = await fetch(`${apiBaseUrl}/api/attachments/upload`, {
           method: "POST",
+          headers: getAuthHeaders(),
           body: formData,
         });
 
@@ -239,7 +340,7 @@ export function App() {
   }
 
   async function submitFeedback() {
-    if (!bootstrap.userIdHash || !feedbackDraft) {
+    if (!session || !feedbackDraft) {
       return;
     }
 
@@ -255,11 +356,11 @@ export function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           turn_id: feedbackDraft.turnId,
           conversation_id: `conv_${conversationId}`,
-          user_id_hash: bootstrap.userIdHash,
           feedback_type: feedbackDraft.feedbackType,
           selected_dimensions: feedbackDraft.selectedDimensions,
           comments: feedbackDraft.comments.trim() || null,
@@ -282,13 +383,10 @@ export function App() {
         current.map((turn) => (turn.id === feedbackDraft.turnId ? { ...turn, feedbackStatus: "idle" } : turn)),
       );
       setFeedbackDraft((current) => (current ? { ...current, submitting: false, error: message } : current));
-      return;
     }
   }
 
   function resetConversation(nextTransformEnabled: boolean) {
-    // Transformer on/off is treated as a mode boundary. Resetting the conversation keeps
-    // prior transformed context from influencing the raw LLM comparison mode and vice versa.
     setTransformEnabled(nextTransformEnabled);
     setConversationId(createConversationId());
     setTurns([]);
@@ -321,16 +419,16 @@ export function App() {
   }
 
   async function loadConversationSummaries() {
-    if (!bootstrap.userIdHash) {
+    if (!session) {
       return;
     }
 
     setLoadingConversations(true);
     setConversationListError(null);
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/conversations?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
-      );
+      const response = await fetch(`${apiBaseUrl}/api/conversations`, {
+        headers: getAuthHeaders(),
+      });
 
       if (!response.ok) {
         const errorMessage = await extractErrorMessage(response, "Unable to load conversations.");
@@ -357,8 +455,8 @@ export function App() {
     }
   }
 
-  async function loadConversation(conversationId: string) {
-    if (!bootstrap.userIdHash) {
+  async function loadConversation(targetConversationId: string) {
+    if (!session) {
       return;
     }
 
@@ -366,9 +464,9 @@ export function App() {
     setError(null);
 
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/conversations/${conversationId}?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
-      );
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${targetConversationId}`, {
+        headers: getAuthHeaders(),
+      });
 
       if (!response.ok) {
         const errorMessage = await extractErrorMessage(response, "Unable to load conversation.");
@@ -431,16 +529,16 @@ export function App() {
   }
 
   async function deleteConversation(targetConversationId: string) {
-    if (!bootstrap.userIdHash || !window.confirm("Delete this conversation?")) {
+    if (!session || !window.confirm("Delete this conversation?")) {
       return;
     }
 
     setConversationActionBusy(true);
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/conversations/${targetConversationId}?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
-        { method: "DELETE" },
-      );
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${targetConversationId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
 
       if (!response.ok) {
         const errorMessage = await extractErrorMessage(response, "Unable to delete conversation.");
@@ -463,15 +561,15 @@ export function App() {
   }
 
   async function exportConversation(targetConversationId: string) {
-    if (!bootstrap.userIdHash) {
+    if (!session) {
       return;
     }
 
     setConversationActionBusy(true);
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/conversations/${targetConversationId}/export?user_id_hash=${encodeURIComponent(bootstrap.userIdHash)}`,
-      );
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${targetConversationId}/export`, {
+        headers: getAuthHeaders(),
+      });
 
       if (!response.ok) {
         const errorMessage = await extractErrorMessage(response, "Unable to export conversation.");
@@ -494,7 +592,7 @@ export function App() {
     }
   }
 
-  if (!bootstrap.userIdHash) {
+  if (sessionLoading) {
     return (
       <main className="app-shell">
         <Header
@@ -509,8 +607,30 @@ export function App() {
           onChangeSummaryType={applySummaryType}
         />
         <section className="blocking-state">
-          <h1>Missing user_id_hash</h1>
-          <p>The app needs a `user_id_hash` query string to initialize the Prompt Transformer demo.</p>
+          <h1>Initializing session</h1>
+          <p>HermanPrompt is verifying your launch context and starting a secure app session.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="app-shell">
+        <Header
+          isMobile={isMobile}
+          onOpenSidebar={() => setSidebarCollapsed(false)}
+          showDetails={showDetails}
+          transformEnabled={transformEnabled}
+          summaryType={summaryType}
+          theme={theme}
+          onToggleDetails={() => setShowDetails((value) => !value)}
+          onToggleTransform={() => resetConversation(!transformEnabled)}
+          onChangeSummaryType={applySummaryType}
+        />
+        <section className="blocking-state">
+          <h1>Authentication required</h1>
+          <p>{sessionError ?? "The app needs a signed launch token or explicit demo bootstrap to continue."}</p>
         </section>
       </main>
     );
@@ -531,7 +651,12 @@ export function App() {
       />
       <div className="chat-layout">
         {isMobile && !sidebarCollapsed ? (
-          <button aria-label="Close conversations" className="sidebar-backdrop" type="button" onClick={() => setSidebarCollapsed(true)} />
+          <button
+            aria-label="Close conversations"
+            className="sidebar-backdrop"
+            type="button"
+            onClick={() => setSidebarCollapsed(true)}
+          />
         ) : null}
         <ConversationSidebar
           actionBusy={conversationActionBusy}
@@ -548,24 +673,24 @@ export function App() {
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         />
         <div className="chat-main">
-      {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
-      <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
-      {error ? <div className="error-banner">{error}</div> : null}
-      <Composer
-        attachments={attachments}
-        disabled={loading}
-        dragActive={dragActive}
-        uploadError={uploadError}
-        uploading={uploading}
-        value={draft}
-        onChange={setDraft}
-        onDragStateChange={setDragActive}
-        onFileSelect={uploadFiles}
-        onRemoveAttachment={(attachmentId) =>
-          setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId))
-        }
-        onSubmit={handleSubmit}
-      />
+          {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
+          <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
+          {error ? <div className="error-banner">{error}</div> : null}
+          <Composer
+            attachments={attachments}
+            disabled={loading}
+            dragActive={dragActive}
+            uploadError={uploadError}
+            uploading={uploading}
+            value={draft}
+            onChange={setDraft}
+            onDragStateChange={setDragActive}
+            onFileSelect={uploadFiles}
+            onRemoveAttachment={(attachmentId) =>
+              setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId))
+            }
+            onSubmit={handleSubmit}
+          />
         </div>
       </div>
       {feedbackDraft ? (

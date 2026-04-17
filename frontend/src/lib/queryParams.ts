@@ -1,16 +1,18 @@
 export type ThemeMode = "dark" | "light";
 
-export type AppBootstrap = {
-  userIdHash: string | null;
+export type LaunchParams = {
+  launchToken: string | null;
+  demoUserIdHash: string | null;
   showDetails: boolean;
   transformEnabled: boolean;
   summaryType: number | null;
   theme: ThemeMode;
 };
 
-export function getBootstrapState(search: string): AppBootstrap {
+export function getLaunchParams(search: string): LaunchParams {
   const params = new URLSearchParams(search);
-  const userIdHash = params.get("user_id_hash");
+  const launchToken = params.get("launch_token");
+  const demoUserIdHash = params.get("user_id_hash");
   const showDetails = params.get("show_details") === "true";
   const transformEnabled = params.get("transform_enabled") !== "false";
   const theme = params.get("theme") === "light" ? "light" : "dark";
@@ -22,7 +24,8 @@ export function getBootstrapState(search: string): AppBootstrap {
       : null;
 
   return {
-    userIdHash,
+    launchToken,
+    demoUserIdHash,
     showDetails,
     transformEnabled,
     summaryType,

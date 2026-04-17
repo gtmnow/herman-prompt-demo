@@ -23,7 +23,6 @@ class AttachmentReference(BaseModel):
 
 
 class ChatSendRequest(BaseModel):
-    user_id_hash: str = Field(min_length=1)
     conversation_id: str = Field(min_length=1)
     message_text: str | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
@@ -138,7 +137,6 @@ class ConversationDeleteResponse(BaseModel):
 class FeedbackRequest(BaseModel):
     turn_id: str = Field(min_length=1)
     conversation_id: str = Field(min_length=1)
-    user_id_hash: str = Field(min_length=1)
     feedback_type: Literal["up", "down"]
     selected_dimensions: list[str] = Field(default_factory=list)
     comments: str | None = None
@@ -150,3 +148,15 @@ class FeedbackResponse(BaseModel):
 
 class AttachmentUploadResponse(BaseModel):
     attachment: AttachmentReference
+
+
+class SessionBootstrapResponse(BaseModel):
+    access_token: str
+    expires_at: int
+    auth_mode: str
+    user_id_hash: str
+    display_name: str
+    tenant_id: str
+    features: dict[str, bool] = Field(default_factory=dict)
+    branding: dict[str, str] = Field(default_factory=dict)
+    debug: dict[str, bool | int | None] = Field(default_factory=dict)

@@ -30,7 +30,7 @@ docs/        technical specs, PRD-derived notes, engineering docs
 
 ### Request Flow
 
-1. The frontend reads `user_id_hash` and optional display flags from the URL.
+1. The frontend bootstraps an app session from `GET /api/session/bootstrap` using a signed `launch_token` or explicit demo-mode `user_id_hash`.
 2. The user submits text and optional attachments.
 3. The frontend calls `POST /api/chat/send` on the HermanPrompt backend.
 4. The backend calls Prompt Transformer at `PROMPT_TRANSFORMER_URL` unless transformation is disabled for the current turn.
@@ -77,8 +77,16 @@ uvicorn app.main:app --reload --port 8002
 
 ### Example Local URL
 
+Demo mode:
+
 ```text
 http://localhost:5173/?user_id_hash=user_1&theme=dark
+```
+
+Signed launch mode:
+
+```text
+http://localhost:5173/?launch_token=<signed-token>&theme=dark
 ```
 
 ### Local Ports
@@ -93,6 +101,13 @@ http://localhost:5173/?user_id_hash=user_1&theme=dark
 
 Important backend variables:
 
+- `AUTH_SESSION_SECRET`
+- `AUTH_LAUNCH_SECRET`
+- `AUTH_USER_HASH_SALT`
+- `AUTH_SESSION_TTL_SECONDS`
+- `AUTH_ALLOW_DEMO_MODE`
+- `PROMPT_TRANSFORMER_API_KEY`
+- `PROMPT_TRANSFORMER_CLIENT_ID`
 - `PROMPT_TRANSFORMER_URL`
 - `LLM_PROVIDER`
 - `LLM_MODEL`
@@ -162,10 +177,18 @@ Keep Prompt Transformer as a separate service. HermanPrompt should consume it ov
 - `frontend/src/lib/queryParams.ts`
   URL bootstrap parsing for demo mode
 
+## Authentication Model
+
+- `GET /api/session/bootstrap` is the frontend bootstrap entrypoint.
+- In production, HermanPrompt should receive a signed launch token from Softr or another identity provider and derive `user_id_hash` server-side.
+- Demo mode can still use `user_id_hash` in the URL when `AUTH_ALLOW_DEMO_MODE=true`.
+- Frontend API calls use a backend-issued bearer token.
+- Backend calls to Prompt Transformer include `X-Client-Id` and an optional `Authorization: Bearer <PROMPT_TRANSFORMER_API_KEY>` header.
+
 ## Current Limitations
 
 - Conversation history is persisted, but rename/archive and attachment-level history management are not implemented yet.
-- Authentication is not implemented yet.
+- Signed launch tokens are HMAC-based and intended as the first portable integration layer, not the final long-term IdP contract.
 - Admin configuration UI is not implemented yet.
 - The OpenAI adapter is the only real provider implementation today.
 - Image generation support is provider-specific and gated by the configured model.
@@ -174,6 +197,8 @@ Keep Prompt Transformer as a separate service. HermanPrompt should consume it ov
 ## Engineering Docs
 
 - [Technical spec](./docs/HermanPrompt_Technical_Spec_v1.md)
+- [Auth and service architecture](./docs/AUTH_AND_SERVICE_ARCHITECTURE.md)
+- [Auth build spec](./docs/HermanPrompt_Auth_Build_Spec.md)
 - [Engineering guide](./docs/ENGINEERING_GUIDE.md)
 - [Deployment guide](./docs/DEPLOYMENT.md)
 - [Contributor roadmap](./docs/ROADMAP.md)

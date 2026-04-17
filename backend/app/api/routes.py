@@ -1,5 +1,7 @@
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 
+from app.api.deps import build_bootstrap_response, get_current_user
+from app.core.auth import AuthenticatedUser
 from app.schemas.chat import (
     AttachmentUploadResponse,
     ChatSendRequest,
@@ -9,6 +11,7 @@ from app.schemas.chat import (
     ConversationListResponse,
     FeedbackRequest,
     FeedbackResponse,
+    SessionBootstrapResponse,
 )
 from app.services.chat_service import ChatService
 from app.services.attachment_service import AttachmentService
@@ -24,12 +27,22 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/session/bootstrap", response_model=SessionBootstrapResponse)
+async def session_bootstrap(
+    bootstrap: SessionBootstrapResponse = Depends(build_bootstrap_response),
+) -> SessionBootstrapResponse:
+    return bootstrap
+
+
 @router.post("/chat/send", response_model=ChatSendResponse)
-async def send_chat_turn(payload: ChatSendRequest) -> ChatSendResponse:
+async def send_chat_turn(
+    payload: ChatSendRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ChatSendResponse:
     # Route-level error mapping keeps provider and orchestration code focused on domain
     # behavior while the API layer translates failures into predictable HTTP responses.
     try:
-        return await chat_service.send_turn(payload)
+        return await chat_service.send_turn(payload, user=user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except UnsupportedCapabilityError as exc:
@@ -39,37 +52,49 @@ async def send_chat_turn(payload: ChatSendRequest) -> ChatSendResponse:
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
-async def submit_feedback(payload: FeedbackRequest) -> FeedbackResponse:
-    return await chat_service.save_feedback(payload)
+async def submit_feedback(
+    payload: FeedbackRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> FeedbackResponse:
+    return await chat_service.save_feedback(payload, user=user)
 
 
 @router.get("/conversations", response_model=ConversationListResponse)
-async def list_conversations(user_id_hash: str) -> ConversationListResponse:
-    return await chat_service.list_conversations(user_id_hash=user_id_hash)
+async def list_conversations(user: AuthenticatedUser = Depends(get_current_user)) -> ConversationListResponse:
+    return await chat_service.list_conversations(user_id_hash=user.user_id_hash)
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_conversation(conversation_id: str, user_id_hash: str) -> ConversationDetailResponse:
+async def get_conversation(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationDetailResponse:
     try:
-        return await chat_service.get_conversation(conversation_id=conversation_id, user_id_hash=user_id_hash)
+        return await chat_service.get_conversation(conversation_id=conversation_id, user_id_hash=user.user_id_hash)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.delete("/conversations/{conversation_id}", response_model=ConversationDeleteResponse)
-async def delete_conversation(conversation_id: str, user_id_hash: str) -> ConversationDeleteResponse:
+async def delete_conversation(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationDeleteResponse:
     try:
-        return await chat_service.delete_conversation(conversation_id=conversation_id, user_id_hash=user_id_hash)
+        return await chat_service.delete_conversation(conversation_id=conversation_id, user_id_hash=user.user_id_hash)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get("/conversations/{conversation_id}/export")
-async def export_conversation(conversation_id: str, user_id_hash: str) -> Response:
+async def export_conversation(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> Response:
     try:
         filename, content = await chat_service.export_conversation_text(
             conversation_id=conversation_id,
-            user_id_hash=user_id_hash,
+            user_id_hash=user.user_id_hash,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -82,7 +107,10 @@ async def export_conversation(conversation_id: str, user_id_hash: str) -> Respon
 
 
 @router.post("/attachments/upload", response_model=AttachmentUploadResponse)
-async def upload_attachment(file: UploadFile = File(...)) -> AttachmentUploadResponse:
+async def upload_attachment(
+    file: UploadFile = File(...),
+    _: AuthenticatedUser = Depends(get_current_user),
+) -> AttachmentUploadResponse:
     try:
         attachment = await attachment_service.upload_attachment(file)
         return AttachmentUploadResponse(attachment=attachment)

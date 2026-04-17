@@ -41,7 +41,14 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
 - `APP_ENV=production`
 - `HOST=0.0.0.0`
+- `AUTH_SESSION_SECRET=<long random secret>`
+- `AUTH_LAUNCH_SECRET=<shared secret used to validate signed launch tokens>`
+- `AUTH_USER_HASH_SALT=<stable salt for deterministic user hash derivation>`
+- `AUTH_SESSION_TTL_SECONDS=3600`
+- `AUTH_ALLOW_DEMO_MODE=false`
 - `PROMPT_TRANSFORMER_URL=https://prompttranformer-production.up.railway.app`
+- `PROMPT_TRANSFORMER_API_KEY=<shared transformer credential>`
+- `PROMPT_TRANSFORMER_CLIENT_ID=hermanprompt`
 - `LLM_PROVIDER=openai`
 - `LLM_MODEL=gpt-4.1`
 - `LLM_API_KEY=<secret>`
@@ -140,12 +147,13 @@ If the UI shows an unsupported-function message, the current provider/model pair
 ### Backend
 
 1. `/api/health` returns `{"status":"ok"}`
-2. `POST /api/chat/send` succeeds with a known user
-3. Prompt Transformer metadata appears in the response
+2. `GET /api/session/bootstrap` succeeds with a signed launch token
+3. `POST /api/chat/send` succeeds with the returned bearer token
+4. Prompt Transformer metadata appears in the response
 
 ### Frontend
 
-1. page loads successfully
+1. page loads successfully with a launch token
 2. prompts send without browser fetch errors
 3. `Show Details` works
 4. `Use Transformer` works

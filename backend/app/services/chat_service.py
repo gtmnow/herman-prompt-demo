@@ -1,3 +1,4 @@
+from app.core.auth import AuthenticatedUser
 from app.core.config import settings
 from app.schemas.chat import (
     ChatResponseMetadata,
@@ -25,18 +26,18 @@ class ChatService:
         self.feedback_service = FeedbackService()
         self.conversation_service = ConversationService()
 
-    async def send_turn(self, payload: ChatSendRequest) -> ChatSendResponse:
+    async def send_turn(self, payload: ChatSendRequest, *, user: AuthenticatedUser) -> ChatSendResponse:
         raw_user_text = payload.latest_user_text()
         conversation_history = self.conversation_service.get_turn_history(
             conversation_id=payload.conversation_id,
-            user_id_hash=payload.user_id_hash,
+            user_id_hash=user.user_id_hash,
         )
         transformer_metadata: dict[str, object]
 
         if payload.debug.transform_enabled:
             transformed = await self.transformer_client.transform_prompt(
                 session_id=payload.conversation_id,
-                user_id=payload.user_id_hash,
+                user_id=user.user_id_hash,
                 raw_prompt=raw_user_text,
                 summary_type=payload.summary_type,
             )
@@ -80,7 +81,7 @@ class ChatService:
 
         turn_id = self.conversation_service.append_turn(
             conversation_id=payload.conversation_id,
-            user_id_hash=payload.user_id_hash,
+            user_id_hash=user.user_id_hash,
             user_text=raw_user_text,
             transformed_text=visible_transformed_text,
             assistant_text=llm_response.text,
@@ -118,8 +119,8 @@ class ChatService:
             ),
         )
 
-    async def save_feedback(self, payload: FeedbackRequest) -> FeedbackResponse:
-        self.feedback_service.save_feedback(payload)
+    async def save_feedback(self, payload: FeedbackRequest, *, user: AuthenticatedUser) -> FeedbackResponse:
+        self.feedback_service.save_feedback(payload, user_id_hash=user.user_id_hash)
         return FeedbackResponse(status="saved")
 
     async def list_conversations(self, *, user_id_hash: str) -> ConversationListResponse:
