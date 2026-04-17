@@ -8,6 +8,7 @@ HermanPrompt deploys as two services from the same GitHub repository:
 - backend service
 
 Prompt Transformer remains a separate service and is consumed over API.
+Herman Portal is a separate service pair that handles login and signed launch into HermanPrompt.
 
 ## Service Layout
 
@@ -20,6 +21,24 @@ Prompt Transformer remains a separate service and is consumed over API.
 
 - Root directory: `backend`
 - Purpose: FastAPI orchestration API for chat, uploads, and feedback
+
+## Production Topology
+
+Production now runs as four cooperating services:
+
+- Herman Portal frontend
+- Herman Portal backend
+- HermanPrompt frontend
+- HermanPrompt backend
+- Prompt Transformer
+
+The production user path is:
+
+1. user logs in through Herman Portal
+2. Herman Portal backend issues signed launch token
+3. Herman Portal frontend redirects into HermanPrompt frontend
+4. HermanPrompt backend validates launch token and creates app session
+5. HermanPrompt backend calls Prompt Transformer with service credentials
 
 ## Railway Backend Configuration
 
@@ -42,12 +61,12 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - `APP_ENV=production`
 - `HOST=0.0.0.0`
 - `AUTH_SESSION_SECRET=<long random secret>`
-- `AUTH_LAUNCH_SECRET=<shared secret used to validate signed launch tokens>`
+- `AUTH_LAUNCH_SECRET=<must exactly match Herman Portal backend HERMANPROMPT_LAUNCH_SECRET>`
 - `AUTH_USER_HASH_SALT=<stable salt for deterministic user hash derivation>`
 - `AUTH_SESSION_TTL_SECONDS=3600`
 - `AUTH_ALLOW_DEMO_MODE=false`
 - `PROMPT_TRANSFORMER_URL=https://prompttranformer-production.up.railway.app`
-- `PROMPT_TRANSFORMER_API_KEY=<shared transformer credential>`
+- `PROMPT_TRANSFORMER_API_KEY=<must exactly match Prompt Transformer PROMPT_TRANSFORMER_API_KEY>`
 - `PROMPT_TRANSFORMER_CLIENT_ID=hermanprompt`
 - `LLM_PROVIDER=openai`
 - `LLM_MODEL=gpt-4.1`
@@ -109,6 +128,19 @@ https://prompttranformer-production.up.railway.app
 
 HermanPrompt should keep consuming Prompt Transformer over API rather than embedding it directly into the HermanPrompt backend.
 
+## Herman Portal Dependency
+
+The HermanPrompt frontend should not be treated as the public login entrypoint in production.
+
+Production login flow should begin at the Herman Portal frontend:
+
+- Herman Portal frontend
+- Herman Portal backend
+- HermanPrompt frontend
+- HermanPrompt backend
+
+HermanPrompt should accept signed launch tokens from Herman Portal and should not allow anonymous direct access as the production path.
+
 ## Common Deployment Issues
 
 ### `No start command detected`
@@ -135,8 +167,24 @@ Common causes:
 If the backend is healthy but chat requests fail, verify:
 
 - `PROMPT_TRANSFORMER_URL`
+- `PROMPT_TRANSFORMER_API_KEY`
+- `PROMPT_TRANSFORMER_CLIENT_ID`
 - Railway Prompt Transformer health
+- that Prompt Transformer allows `hermanprompt` in `ALLOWED_CLIENT_IDS`
 - that Railway Prompt Transformer seed data is current
+
+### `Invalid token signature` after portal login
+
+Cause:
+
+- Herman Portal backend `HERMANPROMPT_LAUNCH_SECRET` does not match HermanPrompt backend `AUTH_LAUNCH_SECRET`
+
+Fix:
+
+- set both variables to the exact same value
+- redeploy Herman Portal backend
+- redeploy HermanPrompt backend
+- log in again to generate a fresh launch token
 
 ### OpenAI capability errors
 
@@ -147,17 +195,30 @@ If the UI shows an unsupported-function message, the current provider/model pair
 ### Backend
 
 1. `/api/health` returns `{"status":"ok"}`
-2. `GET /api/session/bootstrap` succeeds with a signed launch token
-3. `POST /api/chat/send` succeeds with the returned bearer token
-4. Prompt Transformer metadata appears in the response
+2. Herman Portal login succeeds
+3. `GET /api/session/bootstrap` succeeds with a signed launch token
+4. `POST /api/chat/send` succeeds with the returned bearer token
+5. Prompt Transformer metadata appears in the response
 
 ### Frontend
 
-1. page loads successfully with a launch token
-2. prompts send without browser fetch errors
-3. `Show Details` works
-4. `Use Transformer` works
-5. file upload works
+1. portal login redirects successfully into HermanPrompt
+2. HermanPrompt page loads successfully with a launch token
+3. prompts send without browser fetch errors
+4. `Show Details` works
+5. `Use Transformer` works
+6. file upload works
+7. direct anonymous access is not the intended production entry path
+
+## Deployment Order
+
+When changing auth-related settings or code, deploy in this order:
+
+1. Prompt Transformer
+2. HermanPrompt backend
+3. Herman Portal backend
+4. HermanPrompt frontend
+5. Herman Portal frontend
 
 ## Future Deployment Notes
 
