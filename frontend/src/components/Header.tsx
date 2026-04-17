@@ -4,10 +4,12 @@ type HeaderProps = {
   showDetails: boolean;
   transformEnabled: boolean;
   summaryType: number | null;
+  enforcementLevel: "none" | "low" | "moderate" | "full";
   theme: "dark" | "light";
   onToggleDetails: () => void;
   onToggleTransform: () => void;
   onChangeSummaryType: (summaryType: number | null) => void;
+  onChangeEnforcementLevel: (enforcementLevel: "none" | "low" | "moderate" | "full") => void;
 };
 
 export function Header({
@@ -16,10 +18,12 @@ export function Header({
   showDetails,
   transformEnabled,
   summaryType,
+  enforcementLevel,
   theme,
   onToggleDetails,
   onToggleTransform,
   onChangeSummaryType,
+  onChangeEnforcementLevel,
 }: HeaderProps) {
   return (
     <header className="topbar">
@@ -62,6 +66,22 @@ export function Header({
                 Type {value}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="profile-picker">
+          <span className="profile-picker-label">Enforcement</span>
+          <select
+            aria-label="Select prompt enforcement level"
+            className="profile-picker-select"
+            value={enforcementLevel}
+            onChange={(event) =>
+              onChangeEnforcementLevel(event.target.value as "none" | "low" | "moderate" | "full")
+            }
+          >
+            <option value="none">None</option>
+            <option value="low">Low</option>
+            <option value="moderate">Moderate</option>
+            <option value="full">Full</option>
           </select>
         </label>
         <label className="toggle">

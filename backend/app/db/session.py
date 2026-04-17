@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -18,6 +18,17 @@ def initialize_database() -> None:
     _ = ConversationTurn
     _ = Feedback
     Base.metadata.create_all(bind=engine)
+    _ensure_conversation_columns()
+
+
+def _ensure_conversation_columns() -> None:
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("conversations")}
+    if "transformer_conversation" in columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE conversations ADD COLUMN transformer_conversation JSON"))
 
 
 def get_session() -> Session:

@@ -9,6 +9,19 @@ import { getLaunchParams, type ThemeMode } from "./lib/queryParams";
 const DEMO_RESPONSE =
   "This is a starter scaffold response. The real app will replace this with the configured LLM output.";
 
+type TransformerConversation = {
+  conversation_id: string;
+  requirements: Record<string, { value?: string | null; status: string }>;
+  enforcement: {
+    level: string;
+    status: string;
+    missing_fields: string[];
+    last_evaluated_at?: string | null;
+  };
+};
+
+type EnforcementLevel = "none" | "low" | "moderate" | "full";
+
 type SessionBootstrap = {
   access_token: string;
   expires_at: number;
@@ -45,6 +58,7 @@ export function App() {
   const [showDetails, setShowDetails] = useState(launchParams.showDetails);
   const [transformEnabled, setTransformEnabled] = useState(launchParams.transformEnabled);
   const [summaryType, setSummaryType] = useState<number | null>(launchParams.summaryType);
+  const [enforcementLevel, setEnforcementLevel] = useState<EnforcementLevel>("none");
   const [theme, setTheme] = useState<ThemeMode>(launchParams.theme);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
@@ -69,6 +83,7 @@ export function App() {
     error: string | null;
   } | null>(null);
   const [conversationId, setConversationId] = useState(createConversationId);
+  const [transformerConversation, setTransformerConversation] = useState<TransformerConversation | null>(null);
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
 
@@ -164,6 +179,12 @@ export function App() {
     void loadConversationSummaries();
   }, [session?.access_token]);
 
+  const inheritedEnforcementLevel = getInheritedEnforcementLevel(session?.user_id_hash ?? null);
+
+  useEffect(() => {
+    setEnforcementLevel(inheritedEnforcementLevel);
+  }, [inheritedEnforcementLevel]);
+
   function getAuthHeaders(): Record<string, string> {
     if (!session) {
       return {};
@@ -205,6 +226,7 @@ export function App() {
           debug: {
             show_details: showDetails,
             transform_enabled: transformEnabled,
+            enforcement_level: enforcementLevel,
           },
         }),
       });
@@ -224,6 +246,10 @@ export function App() {
         metadata: {
           transformer: {
             transformation_applied: boolean;
+            result_type: "transformed" | "coaching" | "blocked";
+            conversation?: TransformerConversation | null;
+            coaching_tip?: string | null;
+            blocking_message?: string | null;
           };
         };
       };
@@ -240,14 +266,25 @@ export function App() {
             base64Data: image.base64_data,
           })),
           transformationApplied: payload.metadata.transformer.transformation_applied,
+          assistantKind:
+            payload.metadata.transformer.result_type === "transformed"
+              ? "assistant"
+              : payload.metadata.transformer.result_type,
           feedbackStatus: "idle",
         },
       ]);
       setConversationId(payload.conversation_id.replace(/^conv_/, ""));
+      setTransformerConversation(payload.metadata.transformer.conversation ?? null);
+      if (payload.metadata.transformer.result_type === "coaching") {
+        setConversationNotice(payload.metadata.transformer.coaching_tip ?? "Prompt guidance returned. Review the latest assistant message before retrying.");
+      } else if (payload.metadata.transformer.result_type === "blocked") {
+        setConversationNotice(payload.metadata.transformer.blocking_message ?? "Request blocked by transformer checks. Review the latest assistant message.");
+      } else {
+        setConversationNotice(null);
+      }
       setDraft("");
       setAttachments([]);
       setUploadError(null);
-      setConversationNotice(null);
       void loadConversationSummaries();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Something went wrong.");
@@ -389,6 +426,7 @@ export function App() {
   function resetConversation(nextTransformEnabled: boolean) {
     setTransformEnabled(nextTransformEnabled);
     setConversationId(createConversationId());
+    setTransformerConversation(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -405,6 +443,7 @@ export function App() {
   function applySummaryType(nextSummaryType: number | null) {
     setSummaryType(nextSummaryType);
     setConversationId(createConversationId());
+    setTransformerConversation(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -416,6 +455,19 @@ export function App() {
         ? "Conversation reset. Using the selected user's default profile."
         : `Conversation reset. Using demo profile type ${nextSummaryType}.`,
     );
+  }
+
+  function applyEnforcementLevel(nextEnforcementLevel: EnforcementLevel) {
+    setEnforcementLevel(nextEnforcementLevel);
+    setConversationId(createConversationId());
+    setTransformerConversation(null);
+    setTurns([]);
+    setDraft("");
+    setAttachments([]);
+    setUploadError(null);
+    setError(null);
+    setFeedbackDraft(null);
+    setConversationNotice(`Conversation reset. Using ${nextEnforcementLevel} enforcement.`);
   }
 
   async function loadConversationSummaries() {
@@ -475,6 +527,7 @@ export function App() {
 
       const payload = (await response.json()) as {
         id: string;
+        transformer_conversation?: TransformerConversation | null;
         turns: {
           id: string;
           user_text: string;
@@ -486,6 +539,7 @@ export function App() {
       };
 
       setConversationId(payload.id.replace(/^conv_/, ""));
+      setTransformerConversation(payload.transformer_conversation ?? null);
       setTurns(
         payload.turns.map((turn) => ({
           id: turn.id,
@@ -493,6 +547,7 @@ export function App() {
           transformedText: turn.transformed_text,
           assistantText: turn.assistant_text,
           transformationApplied: turn.transformation_applied,
+          assistantKind: "assistant",
           assistantImages: turn.assistant_images.map((image) => ({
             mediaType: image.media_type,
             base64Data: image.base64_data,
@@ -516,6 +571,7 @@ export function App() {
 
   function startNewConversation() {
     setConversationId(createConversationId());
+    setTransformerConversation(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -601,10 +657,12 @@ export function App() {
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
+          enforcementLevel={enforcementLevel}
           theme={theme}
           onToggleDetails={() => setShowDetails((value) => !value)}
           onToggleTransform={() => resetConversation(!transformEnabled)}
           onChangeSummaryType={applySummaryType}
+          onChangeEnforcementLevel={applyEnforcementLevel}
         />
         <section className="blocking-state">
           <h1>Initializing session</h1>
@@ -623,10 +681,12 @@ export function App() {
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
+          enforcementLevel={enforcementLevel}
           theme={theme}
           onToggleDetails={() => setShowDetails((value) => !value)}
           onToggleTransform={() => resetConversation(!transformEnabled)}
           onChangeSummaryType={applySummaryType}
+          onChangeEnforcementLevel={applyEnforcementLevel}
         />
         <section className="blocking-state">
           <h1>Authentication required</h1>
@@ -644,10 +704,12 @@ export function App() {
         showDetails={showDetails}
         transformEnabled={transformEnabled}
         summaryType={summaryType}
+        enforcementLevel={enforcementLevel}
         theme={theme}
         onToggleDetails={() => setShowDetails((value) => !value)}
         onToggleTransform={() => resetConversation(!transformEnabled)}
         onChangeSummaryType={applySummaryType}
+        onChangeEnforcementLevel={applyEnforcementLevel}
       />
       <div className="chat-layout">
         {isMobile && !sidebarCollapsed ? (
@@ -732,4 +794,13 @@ async function extractErrorMessage(response: Response, fallbackMessage: string) 
   }
 
   return fallbackMessage;
+}
+
+function getInheritedEnforcementLevel(userIdHash: string | null): EnforcementLevel {
+  switch (userIdHash) {
+    case "user_1":
+      return "full";
+    default:
+      return "none";
+  }
 }

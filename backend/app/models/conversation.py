@@ -13,6 +13,7 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     user_id_hash: Mapped[str] = mapped_column(String(255), index=True)
     title: Mapped[str] = mapped_column(String(255))
+    transformer_conversation: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
 

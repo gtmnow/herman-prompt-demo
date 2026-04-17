@@ -32,17 +32,33 @@ class ChatService:
             conversation_id=payload.conversation_id,
             user_id_hash=user.user_id_hash,
         )
+        stored_transformer_conversation = self.conversation_service.get_transformer_conversation(
+            conversation_id=payload.conversation_id,
+            user_id_hash=user.user_id_hash,
+        )
         transformer_metadata: dict[str, object]
+        transformer_conversation = stored_transformer_conversation
+        transformer_result_type = "transformed"
+        transformer_findings: list[dict[str, object]] = []
+        coaching_tip = None
+        blocking_message = None
 
         if payload.debug.transform_enabled:
             transformed = await self.transformer_client.transform_prompt(
                 session_id=payload.conversation_id,
+                conversation_id=payload.conversation_id,
                 user_id=user.user_id_hash,
                 raw_prompt=raw_user_text,
+                conversation=stored_transformer_conversation,
                 summary_type=payload.summary_type,
+                enforcement_level=payload.debug.enforcement_level,
             )
-            transformed_prompt = transformed.get("transformed_prompt", "")
             transformer_metadata = transformed.get("metadata", {})
+            transformer_result_type = transformed.get("result_type", "transformed")
+            transformer_conversation = transformed.get("conversation")
+            transformer_findings = transformed.get("findings", [])
+            coaching_tip = transformed.get("coaching_tip")
+            blocking_message = transformed.get("blocking_message")
             task_type = transformed.get("task_type", "unknown")
             persona_source = transformer_metadata.get("persona_source", "generic_default")
             profile_version = transformer_metadata.get("profile_version")
@@ -50,8 +66,33 @@ class ChatService:
             resolved_model = transformer_metadata.get("resolved_model", settings.llm_model)
             used_fallback_model = transformer_metadata.get("used_fallback_model", False)
             rules_applied = transformer_metadata.get("rules_applied", [])
-            transformation_applied = True
-            bypass_reason = None
+
+            if transformer_result_type == "transformed":
+                transformed_prompt = transformed.get("transformed_prompt", "")
+                transformation_applied = True
+                bypass_reason = None
+                llm_response = await self.llm_client.generate_response(
+                    transformed_prompt=transformed_prompt,
+                    conversation_history=conversation_history,
+                    attachments=payload.attachments,
+                )
+                assistant_text = llm_response.text
+                assistant_images = [
+                    {"media_type": image.media_type, "base64_data": image.base64_data}
+                    for image in llm_response.generated_images
+                ]
+            elif transformer_result_type == "coaching":
+                transformed_prompt = ""
+                transformation_applied = False
+                bypass_reason = "prompt_transform_coaching"
+                assistant_text = coaching_tip or "Add more prompt structure and try again."
+                assistant_images = []
+            else:
+                transformed_prompt = ""
+                transformation_applied = False
+                bypass_reason = "prompt_transform_blocked"
+                assistant_text = blocking_message or "This request cannot be sent to the LLM as written."
+                assistant_images = []
         else:
             transformed_prompt = raw_user_text
             task_type = "bypassed"
@@ -63,20 +104,20 @@ class ChatService:
             rules_applied = []
             transformation_applied = False
             bypass_reason = "prompt_transform_disabled"
+            llm_response = await self.llm_client.generate_response(
+                transformed_prompt=transformed_prompt,
+                conversation_history=conversation_history,
+                attachments=payload.attachments,
+            )
+            assistant_text = llm_response.text
+            assistant_images = [
+                {"media_type": image.media_type, "base64_data": image.base64_data}
+                for image in llm_response.generated_images
+            ]
+            transformer_metadata = {}
 
-        # Saved history should match what the user actually saw in the transcript.
-        # If Show Details was off for this turn, we do not persist the transformed
-        # prompt text as part of the visible conversation record.
         visible_transformed_text = (
             transformed_prompt if payload.debug.show_details and transformation_applied else ""
-        )
-
-        # The active provider adapter owns multimodal behavior and provider-specific
-        # request formatting. ChatService stays responsible for product-level flow only.
-        llm_response = await self.llm_client.generate_response(
-            transformed_prompt=transformed_prompt,
-            conversation_history=conversation_history,
-            attachments=payload.attachments,
         )
 
         turn_id = self.conversation_service.append_turn(
@@ -84,13 +125,11 @@ class ChatService:
             user_id_hash=user.user_id_hash,
             user_text=raw_user_text,
             transformed_text=visible_transformed_text,
-            assistant_text=llm_response.text,
-            assistant_images=[
-                {"media_type": image.media_type, "base64_data": image.base64_data}
-                for image in llm_response.generated_images
-            ],
+            assistant_text=assistant_text,
+            assistant_images=assistant_images,
             transformation_applied=transformation_applied,
             summary_type=payload.summary_type,
+            transformer_conversation=transformer_conversation,
         )
 
         return ChatSendResponse(
@@ -98,8 +137,11 @@ class ChatService:
             turn_id=turn_id,
             user_message=MessagePayload(role="user", text=raw_user_text),
             transformed_message=MessagePayload(role="transformed_prompt", text=visible_transformed_text),
-            assistant_message=MessagePayload(role="assistant", text=llm_response.text),
-            assistant_images=llm_response.generated_images,
+            assistant_message=MessagePayload(role="assistant", text=assistant_text),
+            assistant_images=[
+                {"media_type": image["media_type"], "base64_data": image["base64_data"]}
+                for image in assistant_images
+            ],
             metadata=ChatResponseMetadata(
                 transformer=TransformerMetadata(
                     task_type=task_type,
@@ -111,6 +153,11 @@ class ChatService:
                     transformation_applied=transformation_applied,
                     bypass_reason=bypass_reason,
                     rules_applied=rules_applied,
+                    result_type=transformer_result_type,
+                    coaching_tip=coaching_tip,
+                    blocking_message=blocking_message,
+                    findings=transformer_findings,
+                    conversation=transformer_conversation,
                 ),
                 llm=LlmMetadata(
                     provider=settings.llm_provider,

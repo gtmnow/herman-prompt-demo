@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,6 +11,7 @@ class ChatMessage(BaseModel):
 class DebugOptions(BaseModel):
     show_details: bool = False
     transform_enabled: bool = True
+    enforcement_level: Literal["none", "low", "moderate", "full"] | None = None
 
 
 class AttachmentReference(BaseModel):
@@ -32,9 +33,6 @@ class ChatSendRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_chat_input(self) -> "ChatSendRequest":
-        # The backend accepts either a simple single-message contract or a future-ready
-        # messages array. The current frontend uses message_text, but keeping both paths
-        # documented in the schema makes the API easier to evolve.
         if self.message_text and self.message_text.strip():
             return self
 
@@ -63,6 +61,31 @@ class MessagePayload(BaseModel):
     text: str
 
 
+class TransformerFinding(BaseModel):
+    type: Literal["compliance", "pii"]
+    severity: Literal["low", "medium", "high"]
+    code: str
+    message: str
+
+
+class TransformerConversationRequirement(BaseModel):
+    value: str | None = None
+    status: Literal["user_provided", "derived", "missing"]
+
+
+class TransformerConversationEnforcement(BaseModel):
+    level: Literal["none", "low", "moderate", "full"]
+    status: Literal["not_evaluated", "passes", "needs_coaching", "blocked"]
+    missing_fields: list[str] = Field(default_factory=list)
+    last_evaluated_at: str | None = None
+
+
+class TransformerConversation(BaseModel):
+    conversation_id: str
+    requirements: dict[str, TransformerConversationRequirement] = Field(default_factory=dict)
+    enforcement: TransformerConversationEnforcement
+
+
 class TransformerMetadata(BaseModel):
     task_type: str
     persona_source: str
@@ -73,6 +96,11 @@ class TransformerMetadata(BaseModel):
     transformation_applied: bool = True
     bypass_reason: str | None = None
     rules_applied: list[str] = Field(default_factory=list)
+    result_type: Literal["transformed", "coaching", "blocked"] = "transformed"
+    coaching_tip: str | None = None
+    blocking_message: str | None = None
+    findings: list[TransformerFinding] = Field(default_factory=list)
+    conversation: TransformerConversation | None = None
 
 
 class LlmMetadata(BaseModel):
@@ -127,6 +155,7 @@ class ConversationDetailResponse(BaseModel):
     user_id_hash: str
     created_at: str
     updated_at: str
+    transformer_conversation: dict[str, Any] | None = None
     turns: list[ConversationTurnPayload] = Field(default_factory=list)
 
 

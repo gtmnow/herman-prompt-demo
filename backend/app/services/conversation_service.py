@@ -54,6 +54,7 @@ class ConversationService:
                 user_id_hash=conversation.user_id_hash,
                 created_at=_isoformat(conversation.created_at),
                 updated_at=_isoformat(conversation.updated_at),
+                transformer_conversation=conversation.transformer_conversation,
                 turns=[
                     ConversationTurnPayload(
                         id=turn.id,
@@ -95,6 +96,16 @@ class ConversationService:
         finally:
             session.close()
 
+    def get_transformer_conversation(self, *, conversation_id: str, user_id_hash: str) -> dict | None:
+        session = get_session()
+        try:
+            conversation = session.get(Conversation, conversation_id)
+            if conversation is None or conversation.user_id_hash != user_id_hash:
+                return None
+            return conversation.transformer_conversation
+        finally:
+            session.close()
+
     def append_turn(
         self,
         *,
@@ -106,6 +117,7 @@ class ConversationService:
         assistant_images: list[dict[str, str]],
         transformation_applied: bool,
         summary_type: int | None,
+        transformer_conversation: dict | None,
     ) -> str:
         session = get_session()
         try:
@@ -115,8 +127,11 @@ class ConversationService:
                     id=conversation_id,
                     user_id_hash=user_id_hash,
                     title=_derive_title(user_text),
+                    transformer_conversation=transformer_conversation,
                 )
                 session.add(conversation)
+            elif transformer_conversation is not None:
+                conversation.transformer_conversation = transformer_conversation
 
             conversation.updated_at = datetime.utcnow()
             turn = ConversationTurn(

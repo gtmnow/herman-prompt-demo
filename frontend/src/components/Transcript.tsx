@@ -12,6 +12,7 @@ export type TranscriptTurn = {
   assistantText: string;
   assistantImages: GeneratedImage[];
   transformationApplied: boolean;
+  assistantKind: "assistant" | "coaching" | "blocked";
   feedbackStatus: "idle" | "submitting" | "submitted";
 };
 
@@ -61,8 +62,22 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
             </article>
           ) : null}
 
-          <article className="message-row message-assistant">
-            <div className="message-label">Assistant</div>
+          <article
+            className={`message-row ${
+              turn.assistantKind === "coaching"
+                ? "message-coaching"
+                : turn.assistantKind === "blocked"
+                  ? "message-blocked"
+                  : "message-assistant"
+            }`}
+          >
+            <div className="message-label">
+              {turn.assistantKind === "coaching"
+                ? "Coaching"
+                : turn.assistantKind === "blocked"
+                  ? "Safety Check"
+                  : "Assistant"}
+            </div>
             <div className="message-body">{turn.assistantText}</div>
             {turn.assistantImages.length > 0 ? (
               <div className="assistant-image-grid">
@@ -76,45 +91,49 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
                 ))}
               </div>
             ) : null}
-            <div className="feedback-row">
-              <button
-                aria-label="Send positive feedback"
-                className="feedback-icon-button"
-                disabled={turn.feedbackStatus !== "idle"}
-                type="button"
-                onClick={() => onOpenFeedback(turn.id, "up")}
-              >
-                <svg aria-hidden="true" className="feedback-icon" viewBox="0 0 24 24">
-                  <path
-                    d="M10 21H6.8c-1 0-1.8-.8-1.8-1.8V10c0-1 .8-1.8 1.8-1.8H10V21Zm2-12.6 2.4-5.1c.3-.8 1.1-1.3 1.9-1.3h.2c.9 0 1.6.7 1.6 1.6v2.7h2.6c1.4 0 2.4 1.3 2.1 2.6l-1.5 7.1c-.2 1-1.1 1.8-2.2 1.8H12V8.4Z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.8"
-                  />
-                </svg>
-              </button>
-              <button
-                aria-label="Send negative feedback"
-                className="feedback-icon-button"
-                disabled={turn.feedbackStatus !== "idle"}
-                type="button"
-                onClick={() => onOpenFeedback(turn.id, "down")}
-              >
-                <svg aria-hidden="true" className="feedback-icon" viewBox="0 0 24 24">
-                  <path
-                    d="M14 3h3.2c1 0 1.8.8 1.8 1.8V14c0 1-.8 1.8-1.8 1.8H14V3Zm-2 12.6-2.4 5.1c-.3.8-1.1 1.3-1.9 1.3h-.2c-.9 0-1.6-.7-1.6-1.6v-2.7H3.3c-1.4 0-2.4-1.3-2.1-2.6l1.5-7.1C2.9 7 3.8 6.2 4.9 6.2H12v9.4Z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.8"
-                  />
-                </svg>
-              </button>
-            </div>
-            {turn.feedbackStatus === "submitted" ? <div className="feedback-note">Feedback saved.</div> : null}
+            {turn.assistantKind === "assistant" ? (
+              <>
+                <div className="feedback-row">
+                  <button
+                    aria-label="Send positive feedback"
+                    className="feedback-icon-button"
+                    disabled={turn.feedbackStatus !== "idle"}
+                    type="button"
+                    onClick={() => onOpenFeedback(turn.id, "up")}
+                  >
+                    <svg aria-hidden="true" className="feedback-icon" viewBox="0 0 24 24">
+                      <path
+                        d="M10 21H6.8c-1 0-1.8-.8-1.8-1.8V10c0-1 .8-1.8 1.8-1.8H10V21Zm2-12.6 2.4-5.1c.3-.8 1.1-1.3 1.9-1.3h.2c.9 0 1.6.7 1.6 1.6v2.7h2.6c1.4 0 2.4 1.3 2.1 2.6l-1.5 7.1c-.2 1-1.1 1.8-2.2 1.8H12V8.4Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.8"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    aria-label="Send negative feedback"
+                    className="feedback-icon-button"
+                    disabled={turn.feedbackStatus !== "idle"}
+                    type="button"
+                    onClick={() => onOpenFeedback(turn.id, "down")}
+                  >
+                    <svg aria-hidden="true" className="feedback-icon" viewBox="0 0 24 24">
+                      <path
+                        d="M14 3h3.2c1 0 1.8.8 1.8 1.8V14c0 1-.8 1.8-1.8 1.8H14V3Zm-2 12.6-2.4 5.1c-.3.8-1.1 1.3-1.9 1.3h-.2c-.9 0-1.6-.7-1.6-1.6v-2.7H3.3c-1.4 0-2.4-1.3-2.1-2.6l1.5-7.1C2.9 7 3.8 6.2 4.9 6.2H12v9.4Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.8"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                {turn.feedbackStatus === "submitted" ? <div className="feedback-note">Feedback saved.</div> : null}
+              </>
+            ) : null}
           </article>
         </div>
       ))}

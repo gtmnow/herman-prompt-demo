@@ -9,6 +9,8 @@
   --text-muted: #c2c2c2;
   --accent: #14a6ff;
   --assistant: #2f2f2f;
+  --coaching: #4a3a20;
+  --blocked: #4a2323;
   --user: #16507a;
   --system: #30353c;
   --danger: #ff8b8b;
@@ -25,6 +27,8 @@
   --text-muted: #5f6c79;
   --accent: #0076d6;
   --assistant: #ffffff;
+  --coaching: #fff1d6;
+  --blocked: #ffe3e3;
   --user: #d7ebff;
   --system: #edf3f8;
   --danger: #b73a3a;
@@ -396,6 +400,18 @@ input {
 .message-assistant {
   align-self: flex-start;
   background: var(--assistant);
+}
+
+.message-coaching {
+  align-self: flex-start;
+  background: var(--coaching);
+  border-color: color-mix(in srgb, #d3a34a 42%, var(--border));
+}
+
+.message-blocked {
+  align-self: flex-start;
+  background: var(--blocked);
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
 }
 
 .message-processing {
