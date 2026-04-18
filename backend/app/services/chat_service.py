@@ -5,6 +5,7 @@ from app.schemas.chat import (
     ChatSendRequest,
     ChatSendResponse,
     ConversationDetailResponse,
+    ConversationDeleteAllResponse,
     ConversationDeleteResponse,
     ConversationListResponse,
     FeedbackRequest,
@@ -42,6 +43,8 @@ class ChatService:
         transformer_findings: list[dict[str, object]] = []
         coaching_tip = None
         blocking_message = None
+        transformer_scoring = None
+        coaching_requirements = None
 
         if payload.debug.transform_enabled:
             transformed = await self.transformer_client.transform_prompt(
@@ -71,6 +74,13 @@ class ChatService:
                 transformed_prompt = transformed.get("transformed_prompt", "")
                 transformation_applied = True
                 bypass_reason = None
+                assistant_kind = "assistant"
+                persisted_coaching_text = coaching_tip or ""
+                coaching_requirements = (
+                    _build_coaching_requirements(raw_user_text, transformer_conversation)
+                    if persisted_coaching_text
+                    else None
+                )
                 llm_response = await self.llm_client.generate_response(
                     transformed_prompt=transformed_prompt,
                     conversation_history=conversation_history,
@@ -85,12 +95,18 @@ class ChatService:
                 transformed_prompt = ""
                 transformation_applied = False
                 bypass_reason = "prompt_transform_coaching"
+                assistant_kind = "coaching"
+                persisted_coaching_text = ""
+                coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
                 assistant_text = coaching_tip or "Add more prompt structure and try again."
                 assistant_images = []
             else:
                 transformed_prompt = ""
                 transformation_applied = False
                 bypass_reason = "prompt_transform_blocked"
+                assistant_kind = "blocked"
+                persisted_coaching_text = ""
+                coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
                 assistant_text = blocking_message or "This request cannot be sent to the LLM as written."
                 assistant_images = []
         else:
@@ -104,6 +120,9 @@ class ChatService:
             rules_applied = []
             transformation_applied = False
             bypass_reason = "prompt_transform_disabled"
+            assistant_kind = "assistant"
+            persisted_coaching_text = ""
+            coaching_requirements = None
             llm_response = await self.llm_client.generate_response(
                 transformed_prompt=transformed_prompt,
                 conversation_history=conversation_history,
@@ -120,12 +139,21 @@ class ChatService:
             transformed_prompt if payload.debug.show_details and transformation_applied else ""
         )
 
+        if payload.debug.transform_enabled:
+            transformer_scoring = await self.transformer_client.fetch_conversation_score(
+                conversation_id=payload.conversation_id,
+                user_id=user.user_id_hash,
+            )
+
         turn_id = self.conversation_service.append_turn(
             conversation_id=payload.conversation_id,
             user_id_hash=user.user_id_hash,
             user_text=raw_user_text,
             transformed_text=visible_transformed_text,
             assistant_text=assistant_text,
+            coaching_text=persisted_coaching_text,
+            coaching_requirements=coaching_requirements,
+            assistant_kind=assistant_kind,
             assistant_images=assistant_images,
             transformation_applied=transformation_applied,
             summary_type=payload.summary_type,
@@ -158,6 +186,7 @@ class ChatService:
                     blocking_message=blocking_message,
                     findings=transformer_findings,
                     conversation=transformer_conversation,
+                    scoring=transformer_scoring,
                 ),
                 llm=LlmMetadata(
                     provider=settings.llm_provider,
@@ -174,10 +203,15 @@ class ChatService:
         return self.conversation_service.list_conversations(user_id_hash=user_id_hash)
 
     async def get_conversation(self, *, conversation_id: str, user_id_hash: str) -> ConversationDetailResponse:
-        return self.conversation_service.get_conversation_detail(
+        detail = self.conversation_service.get_conversation_detail(
             conversation_id=conversation_id,
             user_id_hash=user_id_hash,
         )
+        detail.transformer_scoring = await self.transformer_client.fetch_conversation_score(
+            conversation_id=conversation_id,
+            user_id=user_id_hash,
+        )
+        return detail
 
     async def delete_conversation(self, *, conversation_id: str, user_id_hash: str) -> ConversationDeleteResponse:
         return self.conversation_service.delete_conversation(
@@ -185,8 +219,49 @@ class ChatService:
             user_id_hash=user_id_hash,
         )
 
+    async def delete_all_conversations(self, *, user_id_hash: str) -> ConversationDeleteAllResponse:
+        return self.conversation_service.delete_all_conversations(user_id_hash=user_id_hash)
+
     async def export_conversation_text(self, *, conversation_id: str, user_id_hash: str) -> tuple[str, str]:
         return self.conversation_service.export_conversation_text(
             conversation_id=conversation_id,
             user_id_hash=user_id_hash,
         )
+
+
+def _build_coaching_requirements(raw_user_text: str, transformer_conversation: dict | None) -> dict[str, dict[str, str]] | None:
+    requirements = (transformer_conversation or {}).get("requirements")
+    if not isinstance(requirements, dict):
+        return None
+
+    indicators: dict[str, dict[str, str]] = {}
+    for key in ("who", "task", "context", "output"):
+        requirement = requirements.get(key)
+        status = requirement.get("status") if isinstance(requirement, dict) else None
+        indicators[key] = {
+            "label": key.capitalize(),
+            "state": _indicator_state_for_requirement(raw_user_text, key, status),
+        }
+
+    return indicators
+
+
+def _indicator_state_for_requirement(raw_user_text: str, key: str, status: str | None) -> str:
+    if status == "missing" or not status:
+        return "missing"
+    if status == "derived":
+        return "partial"
+    if _has_explicit_label(raw_user_text, key):
+        return "met"
+    return "partial"
+
+
+def _has_explicit_label(raw_user_text: str, key: str) -> bool:
+    normalized = raw_user_text.lower()
+    label_map = {
+        "who": "who:",
+        "task": "task:",
+        "context": "context:",
+        "output": "output:",
+    }
+    return label_map[key] in normalized

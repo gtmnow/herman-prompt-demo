@@ -70,7 +70,12 @@ class TransformerFinding(BaseModel):
 
 class TransformerConversationRequirement(BaseModel):
     value: str | None = None
-    status: Literal["user_provided", "derived", "missing"]
+    status: Literal["present", "derived", "missing", "user_provided"]
+
+
+class CoachingRequirementIndicator(BaseModel):
+    state: Literal["met", "partial", "missing"]
+    label: str
 
 
 class TransformerConversationEnforcement(BaseModel):
@@ -84,6 +89,15 @@ class TransformerConversation(BaseModel):
     conversation_id: str
     requirements: dict[str, TransformerConversationRequirement] = Field(default_factory=dict)
     enforcement: TransformerConversationEnforcement
+
+
+class TransformerScoring(BaseModel):
+    scoring_version: str
+    initial_score: int
+    final_score: int
+    initial_llm_score: int | None = None
+    final_llm_score: int | None = None
+    structural_score: int
 
 
 class TransformerMetadata(BaseModel):
@@ -101,6 +115,7 @@ class TransformerMetadata(BaseModel):
     blocking_message: str | None = None
     findings: list[TransformerFinding] = Field(default_factory=list)
     conversation: TransformerConversation | None = None
+    scoring: TransformerScoring | None = None
 
 
 class LlmMetadata(BaseModel):
@@ -144,6 +159,9 @@ class ConversationTurnPayload(BaseModel):
     user_text: str
     transformed_text: str
     assistant_text: str
+    coaching_text: str = ""
+    coaching_requirements: dict[str, CoachingRequirementIndicator] = Field(default_factory=dict)
+    assistant_kind: Literal["assistant", "coaching", "blocked"] = "assistant"
     assistant_images: list["GeneratedImagePayload"] = Field(default_factory=list)
     transformation_applied: bool
     created_at: str
@@ -156,11 +174,17 @@ class ConversationDetailResponse(BaseModel):
     created_at: str
     updated_at: str
     transformer_conversation: dict[str, Any] | None = None
+    transformer_scoring: TransformerScoring | None = None
     turns: list[ConversationTurnPayload] = Field(default_factory=list)
 
 
 class ConversationDeleteResponse(BaseModel):
     status: Literal["deleted"]
+
+
+class ConversationDeleteAllResponse(BaseModel):
+    status: Literal["deleted"]
+    deleted_count: int
 
 
 class FeedbackRequest(BaseModel):

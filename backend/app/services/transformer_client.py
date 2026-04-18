@@ -6,6 +6,27 @@ from app.core.config import settings
 
 
 class TransformerClient:
+    async def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            headers = {
+                "X-Client-Id": settings.prompt_transformer_client_id,
+            }
+            if settings.prompt_transformer_api_key:
+                headers["Authorization"] = f"Bearer {settings.prompt_transformer_api_key}"
+
+            response = await client.request(
+                method,
+                f"{settings.prompt_transformer_url}{path}",
+                json=json,
+                params=params,
+                headers=headers,
+            )
+
+        if response.status_code >= 400:
+            raise RuntimeError("Prompt Transformer request failed.")
+
+        return response.json()
+
     async def transform_prompt(
         self,
         *,
@@ -37,20 +58,19 @@ class TransformerClient:
         if enforcement_level is not None:
             payload["enforcement_level"] = enforcement_level
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            headers = {
-                "X-Client-Id": settings.prompt_transformer_client_id,
-            }
-            if settings.prompt_transformer_api_key:
-                headers["Authorization"] = f"Bearer {settings.prompt_transformer_api_key}"
+        return await self._request("POST", "/api/transform_prompt", json=payload)
 
-            response = await client.post(
-                f"{settings.prompt_transformer_url}/api/transform_prompt",
-                json=payload,
-                headers=headers,
+    async def fetch_conversation_score(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        try:
+            return await self._request(
+                "GET",
+                f"/api/conversation_scores/{conversation_id}",
+                params={"user_id": user_id},
             )
-
-        if response.status_code >= 400:
-            raise RuntimeError("Prompt Transformer request failed.")
-
-        return response.json()
+        except RuntimeError:
+            return None

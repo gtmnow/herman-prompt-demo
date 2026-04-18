@@ -10,6 +10,8 @@ export type TranscriptTurn = {
   userText: string;
   transformedText: string;
   assistantText: string;
+  coachingText?: string;
+  coachingRequirements?: Record<string, { label: string; state: "met" | "partial" | "missing" }>;
   assistantImages: GeneratedImage[];
   transformationApplied: boolean;
   assistantKind: "assistant" | "coaching" | "blocked";
@@ -62,6 +64,14 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
             </article>
           ) : null}
 
+          {turn.assistantKind === "assistant" && turn.coachingText?.trim() ? (
+            <article className="message-row message-coaching">
+              <div className="message-label">Coaching</div>
+              <CoachingIndicators requirements={turn.coachingRequirements} />
+              <div className="message-body">{turn.coachingText}</div>
+            </article>
+          ) : null}
+
           <article
             className={`message-row ${
               turn.assistantKind === "coaching"
@@ -78,6 +88,9 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
                   ? "Safety Check"
                   : "Assistant"}
             </div>
+            {turn.assistantKind === "coaching" ? (
+              <CoachingIndicators requirements={turn.coachingRequirements} />
+            ) : null}
             <div className="message-body">{turn.assistantText}</div>
             {turn.assistantImages.length > 0 ? (
               <div className="assistant-image-grid">
@@ -159,5 +172,38 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
         </article>
       ) : null}
     </section>
+  );
+}
+
+function CoachingIndicators({
+  requirements,
+}: {
+  requirements?: Record<string, { label: string; state: "met" | "partial" | "missing" }>;
+}) {
+  if (!requirements) {
+    return null;
+  }
+
+  const orderedKeys = ["who", "task", "context", "output"];
+  const items = orderedKeys
+    .map((key) => requirements[key])
+    .filter((item): item is { label: string; state: "met" | "partial" | "missing" } => Boolean(item));
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="coaching-indicator-row" aria-label="Prompt element status">
+      {items.map((item) => (
+        <div key={item.label} className="coaching-indicator">
+          <span
+            aria-hidden="true"
+            className={`coaching-indicator-dot coaching-indicator-${item.state}`}
+          />
+          <span>{item.label}</span>
+        </div>
+      ))}
+    </div>
   );
 }

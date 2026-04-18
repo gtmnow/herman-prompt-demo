@@ -23,12 +23,20 @@ def initialize_database() -> None:
 
 def _ensure_conversation_columns() -> None:
     inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("conversations")}
-    if "transformer_conversation" in columns:
-        return
-
+    conversation_columns = {column["name"] for column in inspector.get_columns("conversations")}
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE conversations ADD COLUMN transformer_conversation JSON"))
+        if "transformer_conversation" not in conversation_columns:
+            connection.execute(text("ALTER TABLE conversations ADD COLUMN transformer_conversation JSON"))
+
+        turn_columns = {column["name"] for column in inspector.get_columns("conversation_turns")}
+        if "coaching_text" not in turn_columns:
+            connection.execute(text("ALTER TABLE conversation_turns ADD COLUMN coaching_text TEXT DEFAULT ''"))
+        if "coaching_requirements" not in turn_columns:
+            connection.execute(text("ALTER TABLE conversation_turns ADD COLUMN coaching_requirements JSON"))
+        if "assistant_kind" not in turn_columns:
+            connection.execute(
+                text("ALTER TABLE conversation_turns ADD COLUMN assistant_kind VARCHAR(20) DEFAULT 'assistant'")
+            )
 
 
 def get_session() -> Session:

@@ -1,3 +1,5 @@
+import logoImage from "../../assets/logo.png";
+
 type HeaderProps = {
   isMobile: boolean;
   onOpenSidebar: () => void;
@@ -5,6 +7,12 @@ type HeaderProps = {
   transformEnabled: boolean;
   summaryType: number | null;
   enforcementLevel: "none" | "low" | "moderate" | "full";
+  scoring: {
+    initialLlmScore?: number | null;
+    initialScore: number;
+    finalLlmScore?: number | null;
+    finalScore: number;
+  } | null;
   theme: "dark" | "light";
   onToggleDetails: () => void;
   onToggleTransform: () => void;
@@ -19,6 +27,7 @@ export function Header({
   transformEnabled,
   summaryType,
   enforcementLevel,
+  scoring,
   theme,
   onToggleDetails,
   onToggleTransform,
@@ -42,13 +51,18 @@ export function Header({
             </svg>
           </button>
         ) : null}
-        <div className="brand-lockup" aria-label="HermanPrompt">
-          <span className="brand-herman">HERMAN</span>
-          <span className="brand-prompt">PROMPT</span>
-        </div>
+        <img alt="HermanPrompt" className="brand-logo" src={logoImage} />
       </div>
 
       <div className="topbar-controls">
+        {scoring ? (
+          <div className="score-chip" aria-label="Prompt score">
+            <span className="score-chip-label">Score</span>
+            <span className="score-chip-value">
+              {formatScorePair(scoring.initialScore, scoring.initialLlmScore)} {"->"} {formatScorePair(scoring.finalScore, scoring.finalLlmScore)}
+            </span>
+          </div>
+        ) : null}
         <label className="profile-picker">
           <span className="profile-picker-label">Profile</span>
           <select
@@ -109,4 +123,8 @@ export function Header({
       </div>
     </header>
   );
+}
+
+function formatScorePair(combined: number, llmScore?: number | null) {
+  return llmScore === null || llmScore === undefined ? `${combined}` : `${combined}/${llmScore}`;
 }

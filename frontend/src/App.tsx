@@ -21,6 +21,19 @@ type TransformerConversation = {
 };
 
 type EnforcementLevel = "none" | "low" | "moderate" | "full";
+type TransformerScoring = {
+  scoring_version: string;
+  initial_score: number;
+  final_score: number;
+  initial_llm_score?: number | null;
+  final_llm_score?: number | null;
+  structural_score: number;
+};
+
+type CoachingRequirementIndicator = {
+  label: string;
+  state: "met" | "partial" | "missing";
+};
 
 type SessionBootstrap = {
   access_token: string;
@@ -84,6 +97,7 @@ export function App() {
   } | null>(null);
   const [conversationId, setConversationId] = useState(createConversationId);
   const [transformerConversation, setTransformerConversation] = useState<TransformerConversation | null>(null);
+  const [transformerScoring, setTransformerScoring] = useState<TransformerScoring | null>(null);
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
 
@@ -248,6 +262,7 @@ export function App() {
             transformation_applied: boolean;
             result_type: "transformed" | "coaching" | "blocked";
             conversation?: TransformerConversation | null;
+            scoring?: TransformerScoring | null;
             coaching_tip?: string | null;
             blocking_message?: string | null;
           };
@@ -261,6 +276,16 @@ export function App() {
           userText: payload.user_message.text,
           transformedText: payload.transformed_message.text,
           assistantText: payload.assistant_message.text || DEMO_RESPONSE,
+          coachingText:
+            payload.metadata.transformer.result_type === "transformed"
+              ? (payload.metadata.transformer.coaching_tip ?? "")
+              : "",
+          coachingRequirements: deriveCoachingRequirements(
+            payload.user_message.text,
+            payload.metadata.transformer.conversation ?? null,
+            payload.metadata.transformer.result_type,
+            payload.metadata.transformer.coaching_tip ?? null,
+          ),
           assistantImages: payload.assistant_images.map((image) => ({
             mediaType: image.media_type,
             base64Data: image.base64_data,
@@ -275,10 +300,11 @@ export function App() {
       ]);
       setConversationId(payload.conversation_id.replace(/^conv_/, ""));
       setTransformerConversation(payload.metadata.transformer.conversation ?? null);
+      setTransformerScoring(payload.metadata.transformer.scoring ?? null);
       if (payload.metadata.transformer.result_type === "coaching") {
-        setConversationNotice(payload.metadata.transformer.coaching_tip ?? "Prompt guidance returned. Review the latest assistant message before retrying.");
+        setConversationNotice(null);
       } else if (payload.metadata.transformer.result_type === "blocked") {
-        setConversationNotice(payload.metadata.transformer.blocking_message ?? "Request blocked by transformer checks. Review the latest assistant message.");
+        setConversationNotice(null);
       } else {
         setConversationNotice(null);
       }
@@ -427,6 +453,7 @@ export function App() {
     setTransformEnabled(nextTransformEnabled);
     setConversationId(createConversationId());
     setTransformerConversation(null);
+    setTransformerScoring(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -444,6 +471,7 @@ export function App() {
     setSummaryType(nextSummaryType);
     setConversationId(createConversationId());
     setTransformerConversation(null);
+    setTransformerScoring(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -461,6 +489,7 @@ export function App() {
     setEnforcementLevel(nextEnforcementLevel);
     setConversationId(createConversationId());
     setTransformerConversation(null);
+    setTransformerScoring(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -528,11 +557,15 @@ export function App() {
       const payload = (await response.json()) as {
         id: string;
         transformer_conversation?: TransformerConversation | null;
+        transformer_scoring?: TransformerScoring | null;
         turns: {
           id: string;
           user_text: string;
           transformed_text: string;
           assistant_text: string;
+          coaching_text?: string;
+          coaching_requirements?: Record<string, CoachingRequirementIndicator>;
+          assistant_kind?: "assistant" | "coaching" | "blocked";
           transformation_applied: boolean;
           assistant_images: { media_type: string; base64_data: string }[];
         }[];
@@ -540,14 +573,17 @@ export function App() {
 
       setConversationId(payload.id.replace(/^conv_/, ""));
       setTransformerConversation(payload.transformer_conversation ?? null);
+      setTransformerScoring(payload.transformer_scoring ?? null);
       setTurns(
         payload.turns.map((turn) => ({
           id: turn.id,
           userText: turn.user_text,
           transformedText: turn.transformed_text,
           assistantText: turn.assistant_text,
+          coachingText: turn.coaching_text ?? "",
+          coachingRequirements: turn.coaching_requirements ?? {},
           transformationApplied: turn.transformation_applied,
-          assistantKind: "assistant",
+          assistantKind: turn.assistant_kind ?? "assistant",
           assistantImages: turn.assistant_images.map((image) => ({
             mediaType: image.media_type,
             base64Data: image.base64_data,
@@ -572,6 +608,7 @@ export function App() {
   function startNewConversation() {
     setConversationId(createConversationId());
     setTransformerConversation(null);
+    setTransformerScoring(null);
     setTurns([]);
     setDraft("");
     setAttachments([]);
@@ -611,6 +648,51 @@ export function App() {
       setConversationNotice("Conversation deleted.");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversation.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
+  async function deleteAllConversations() {
+    if (!session || conversations.length === 0) {
+      return;
+    }
+    if (
+      !window.confirm(
+        "Delete all saved conversations from HermanPrompt? Prompt score history will remain in the scoring database.",
+      )
+    ) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/conversations`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to delete conversations.");
+        throw new Error(errorMessage);
+      }
+
+      setConversations([]);
+      setConversationId(createConversationId());
+      setTransformerConversation(null);
+      setTransformerScoring(null);
+      setTurns([]);
+      setDraft("");
+      setAttachments([]);
+      setUploadError(null);
+      setError(null);
+      setFeedbackDraft(null);
+      if (isMobile) {
+        setSidebarCollapsed(true);
+      }
+      setConversationNotice("All saved conversations were deleted. Prompt score history was preserved.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversations.");
     } finally {
       setConversationActionBusy(false);
     }
@@ -658,6 +740,12 @@ export function App() {
           transformEnabled={transformEnabled}
           summaryType={summaryType}
           enforcementLevel={enforcementLevel}
+          scoring={transformerScoring ? {
+            initialLlmScore: transformerScoring.initial_llm_score,
+            initialScore: transformerScoring.initial_score,
+            finalLlmScore: transformerScoring.final_llm_score,
+            finalScore: transformerScoring.final_score,
+          } : null}
           theme={theme}
           onToggleDetails={() => setShowDetails((value) => !value)}
           onToggleTransform={() => resetConversation(!transformEnabled)}
@@ -682,6 +770,12 @@ export function App() {
           transformEnabled={transformEnabled}
           summaryType={summaryType}
           enforcementLevel={enforcementLevel}
+          scoring={transformerScoring ? {
+            initialLlmScore: transformerScoring.initial_llm_score,
+            initialScore: transformerScoring.initial_score,
+            finalLlmScore: transformerScoring.final_llm_score,
+            finalScore: transformerScoring.final_score,
+          } : null}
           theme={theme}
           onToggleDetails={() => setShowDetails((value) => !value)}
           onToggleTransform={() => resetConversation(!transformEnabled)}
@@ -705,6 +799,12 @@ export function App() {
         transformEnabled={transformEnabled}
         summaryType={summaryType}
         enforcementLevel={enforcementLevel}
+        scoring={transformerScoring ? {
+          initialLlmScore: transformerScoring.initial_llm_score,
+          initialScore: transformerScoring.initial_score,
+          finalLlmScore: transformerScoring.final_llm_score,
+          finalScore: transformerScoring.final_score,
+        } : null}
         theme={theme}
         onToggleDetails={() => setShowDetails((value) => !value)}
         onToggleTransform={() => resetConversation(!transformEnabled)}
@@ -728,6 +828,7 @@ export function App() {
           conversations={conversations}
           error={conversationListError}
           loading={loadingConversations}
+          onDeleteAllConversations={deleteAllConversations}
           onDeleteConversation={deleteConversation}
           onExportConversation={exportConversation}
           onSelectConversation={loadConversation}
@@ -781,6 +882,61 @@ export function App() {
       ) : null}
     </main>
   );
+}
+
+function deriveCoachingRequirements(
+  userText: string,
+  conversation: TransformerConversation | null,
+  resultType: "transformed" | "coaching" | "blocked",
+  coachingTip: string | null,
+): Record<string, CoachingRequirementIndicator> | undefined {
+  const shouldShowIndicators = resultType !== "transformed" || Boolean(coachingTip?.trim());
+  if (!shouldShowIndicators || !conversation?.requirements) {
+    return undefined;
+  }
+
+  const labels: Record<string, string> = {
+    who: "Who",
+    task: "Task",
+    context: "Context",
+    output: "Output",
+  };
+
+  const indicators: Record<string, CoachingRequirementIndicator> = {};
+  for (const key of ["who", "task", "context", "output"]) {
+    const requirement = conversation.requirements[key];
+    const status = requirement?.status;
+    indicators[key] = {
+      label: labels[key],
+      state: indicatorStateForRequirement(userText, key, status),
+    };
+  }
+  return indicators;
+}
+
+function indicatorStateForRequirement(
+  userText: string,
+  key: string,
+  status: string | undefined,
+): "met" | "partial" | "missing" {
+  if (!status || status === "missing") {
+    return "missing";
+  }
+  if (status === "derived") {
+    return "partial";
+  }
+  return hasExplicitLabel(userText, key) ? "met" : "partial";
+}
+
+function hasExplicitLabel(userText: string, key: string): boolean {
+  const normalized = userText.toLowerCase();
+  const labels: Record<string, string> = {
+    who: "who:",
+    task: "task:",
+    context: "context:",
+    output: "output:",
+  };
+  return normalized.includes(labels[key] ?? "");
 }
 
 async function extractErrorMessage(response: Response, fallbackMessage: string) {

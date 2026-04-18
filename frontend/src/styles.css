@@ -151,7 +151,44 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
   overflow: auto;
+}
+
+.conversation-sidebar-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.conversation-delete-all-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-muted) 82%, var(--danger));
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.conversation-delete-all-button:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--panel-soft) 74%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+}
+
+.conversation-delete-all-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .conversation-sidebar-note {
@@ -243,22 +280,11 @@ input {
   min-width: 0;
 }
 
-.brand-lockup {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  font-size: clamp(1.25rem, 2.6vw, 2rem);
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.brand-herman {
-  color: var(--accent);
-}
-
-.brand-prompt {
-  color: var(--text-muted);
+.brand-logo {
+  display: block;
+  width: clamp(220px, 24vw, 330px);
+  height: auto;
+  max-width: 100%;
 }
 
 .mobile-sidebar-button {
@@ -355,6 +381,44 @@ input {
   transform: translateX(22px);
 }
 
+.score-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+}
+
+.score-chip-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.score-chip-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.score-chip-status {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+}
+
+.score-chip-status.is-pass {
+  background: color-mix(in srgb, #1a7f37 28%, transparent);
+}
+
+.score-chip-status.is-needs-work {
+  background: color-mix(in srgb, #9a6700 30%, transparent);
+}
+
 .transcript {
   display: flex;
   flex-direction: column;
@@ -428,6 +492,46 @@ input {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.coaching-indicator-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.coaching-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: color-mix(in srgb, var(--text) 94%, white 6%);
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.coaching-indicator-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 12px rgba(0, 0, 0, 0.16);
+}
+
+.coaching-indicator-met {
+  background:
+    radial-gradient(circle at 30% 30%, #9dfb90 0%, #3bde2e 42%, #199411 76%, #12740d 100%);
+}
+
+.coaching-indicator-partial {
+  background:
+    radial-gradient(circle at 30% 30%, #ffe88d 0%, #ffd338 38%, #f0af00 76%, #b67c00 100%);
+}
+
+.coaching-indicator-missing {
+  background:
+    radial-gradient(circle at 30% 30%, #ff9a9a 0%, #ff3c3c 38%, #d41818 76%, #9a0f0f 100%);
 }
 
 .message-body {

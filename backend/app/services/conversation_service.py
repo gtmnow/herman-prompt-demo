@@ -8,6 +8,7 @@ from app.db.session import get_session
 from app.models.conversation import Conversation, ConversationTurn
 from app.schemas.chat import (
     ConversationDetailResponse,
+    ConversationDeleteAllResponse,
     ConversationDeleteResponse,
     ConversationListResponse,
     ConversationSummary,
@@ -61,6 +62,9 @@ class ConversationService:
                         user_text=turn.user_text,
                         transformed_text=turn.transformed_text,
                         assistant_text=turn.assistant_text,
+                        coaching_text=turn.coaching_text or "",
+                        coaching_requirements=turn.coaching_requirements or {},
+                        assistant_kind=turn.assistant_kind or "assistant",
                         assistant_images=[
                             GeneratedImagePayload(
                                 media_type=image.get("media_type", "image/png"),
@@ -114,6 +118,9 @@ class ConversationService:
         user_text: str,
         transformed_text: str,
         assistant_text: str,
+        coaching_text: str,
+        coaching_requirements: dict | None,
+        assistant_kind: str,
         assistant_images: list[dict[str, str]],
         transformation_applied: bool,
         summary_type: int | None,
@@ -139,6 +146,9 @@ class ConversationService:
                 user_text=user_text,
                 transformed_text=transformed_text,
                 assistant_text=assistant_text,
+                coaching_text=coaching_text,
+                coaching_requirements=coaching_requirements,
+                assistant_kind=assistant_kind,
                 assistant_images=assistant_images,
                 transformation_applied=transformation_applied,
                 summary_type=summary_type,
@@ -162,6 +172,19 @@ class ConversationService:
         finally:
             session.close()
 
+    def delete_all_conversations(self, *, user_id_hash: str) -> ConversationDeleteAllResponse:
+        session = get_session()
+        try:
+            result = session.execute(select(Conversation).where(Conversation.user_id_hash == user_id_hash))
+            conversations = result.scalars().all()
+            deleted_count = len(conversations)
+            for conversation in conversations:
+                session.delete(conversation)
+            session.commit()
+            return ConversationDeleteAllResponse(status="deleted", deleted_count=deleted_count)
+        finally:
+            session.close()
+
     def export_conversation_text(self, *, conversation_id: str, user_id_hash: str) -> tuple[str, str]:
         session = get_session()
         try:
@@ -175,6 +198,8 @@ class ConversationService:
                 lines.append(f"You: {turn.user_text}")
                 if turn.transformation_applied and turn.transformed_text.strip():
                     lines.append(f"Transformed Prompt: {turn.transformed_text}")
+                if turn.coaching_text.strip():
+                    lines.append(f"Coaching: {turn.coaching_text}")
                 lines.append(f"Assistant: {turn.assistant_text}")
                 lines.append("")
 

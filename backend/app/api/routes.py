@@ -7,6 +7,7 @@ from app.schemas.chat import (
     ChatSendRequest,
     ChatSendResponse,
     ConversationDetailResponse,
+    ConversationDeleteAllResponse,
     ConversationDeleteResponse,
     ConversationListResponse,
     FeedbackRequest,
@@ -84,6 +85,13 @@ async def delete_conversation(
         return await chat_service.delete_conversation(conversation_id=conversation_id, user_id_hash=user.user_id_hash)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/conversations", response_model=ConversationDeleteAllResponse)
+async def delete_all_conversations(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationDeleteAllResponse:
+    return await chat_service.delete_all_conversations(user_id_hash=user.user_id_hash)
 
 
 @router.get("/conversations/{conversation_id}/export")
