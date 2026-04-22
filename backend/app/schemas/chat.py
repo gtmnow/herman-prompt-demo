@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -54,6 +56,52 @@ class ChatSendRequest(BaseModel):
                 return message.text.strip()
 
         raise ValueError("No user message available")
+
+
+class GuideMeStartRequest(BaseModel):
+    conversation_id: str = Field(min_length=1)
+    summary_type: int | None = Field(default=None, ge=1, le=9)
+
+
+class GuideMeRespondRequest(BaseModel):
+    conversation_id: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+
+
+class GuideMeRequirementIndicator(BaseModel):
+    state: Literal["met", "partial", "missing"]
+    label: str
+
+
+class GuideMePersonalization(BaseModel):
+    first_name: str
+    typical_ai_usage: str
+    profile_label: str
+    recent_examples: list[str] = Field(default_factory=list)
+
+
+class GuideMeSessionPayload(BaseModel):
+    session_id: str
+    conversation_id: str
+    status: Literal["active", "complete", "cancelled"]
+    current_step: Literal["intro", "describe_need", "who", "why", "how", "what", "refine", "complete", "cancelled"]
+    question_title: str | None = None
+    question_text: str | None = None
+    answers: dict[str, str] = Field(default_factory=dict)
+    requirements: dict[str, GuideMeRequirementIndicator] = Field(default_factory=dict)
+    personalization: GuideMePersonalization
+    guidance_text: str | None = None
+    follow_up_questions: list[str] = Field(default_factory=list)
+    final_prompt: str | None = None
+    ready_to_insert: bool = False
+
+
+class GuideMeSessionResponse(BaseModel):
+    session: GuideMeSessionPayload | None = None
+
+
+class GuideMeCancelResponse(BaseModel):
+    status: Literal["cancelled"]
 
 
 class MessagePayload(BaseModel):

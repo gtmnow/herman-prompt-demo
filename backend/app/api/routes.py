@@ -12,15 +12,21 @@ from app.schemas.chat import (
     ConversationListResponse,
     FeedbackRequest,
     FeedbackResponse,
+    GuideMeCancelResponse,
+    GuideMeRespondRequest,
+    GuideMeSessionResponse,
+    GuideMeStartRequest,
     SessionBootstrapResponse,
 )
 from app.services.chat_service import ChatService
 from app.services.attachment_service import AttachmentService
+from app.services.guide_me_service import GuideMeService
 from app.services.providers import UnsupportedCapabilityError
 
 router = APIRouter(prefix="/api")
 chat_service = ChatService()
 attachment_service = AttachmentService()
+guide_me_service = GuideMeService()
 
 
 @router.get("/health")
@@ -58,6 +64,44 @@ async def submit_feedback(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> FeedbackResponse:
     return await chat_service.save_feedback(payload, user=user)
+
+
+@router.post("/guide-me/start", response_model=GuideMeSessionResponse)
+async def start_guide_me(
+    payload: GuideMeStartRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> GuideMeSessionResponse:
+    try:
+        return await guide_me_service.start_session(payload, user=user)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/guide-me/respond", response_model=GuideMeSessionResponse)
+async def respond_guide_me(
+    payload: GuideMeRespondRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> GuideMeSessionResponse:
+    try:
+        return await guide_me_service.respond(payload, user=user)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/guide-me/{conversation_id}", response_model=GuideMeSessionResponse)
+async def get_guide_me(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> GuideMeSessionResponse:
+    return await guide_me_service.get_session(conversation_id=conversation_id, user=user)
+
+
+@router.post("/guide-me/{conversation_id}/cancel", response_model=GuideMeCancelResponse)
+async def cancel_guide_me(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> GuideMeCancelResponse:
+    return await guide_me_service.cancel_session(conversation_id=conversation_id, user=user)
 
 
 @router.get("/conversations", response_model=ConversationListResponse)

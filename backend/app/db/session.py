@@ -11,11 +11,12 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def initialize_database() -> None:
-    from app.models.conversation import Conversation, ConversationTurn
+    from app.models.conversation import Conversation, ConversationTurn, GuideMeSession
     from app.models.feedback import Feedback
 
     _ = Conversation
     _ = ConversationTurn
+    _ = GuideMeSession
     _ = Feedback
     Base.metadata.create_all(bind=engine)
     _ensure_conversation_columns()

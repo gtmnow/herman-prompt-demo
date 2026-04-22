@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from uuid import uuid4
 
@@ -41,3 +43,20 @@ class ConversationTurn(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="turns")
+
+
+class GuideMeSession(Base):
+    __tablename__ = "guide_me_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
+    user_id_hash: Mapped[str] = mapped_column(String(255), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="active")
+    current_step: Mapped[str] = mapped_column(String(24), default="intro")
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)
+    personalization: Mapped[dict] = mapped_column(JSON, default=dict)
+    guidance_text: Mapped[str] = mapped_column(Text, default="")
+    follow_up_questions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    final_prompt: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)

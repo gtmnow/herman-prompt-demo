@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Composer, type UploadedAttachment } from "./components/Composer";
 import { ConversationSidebar, type ConversationSummary } from "./components/ConversationSidebar";
 import { FeedbackModal } from "./components/FeedbackModal";
+import { GuideMePanel, type GuideMeSession } from "./components/GuideMePanel";
 import { Header } from "./components/Header";
 import { Transcript, type TranscriptTurn } from "./components/Transcript";
 import { getLaunchParams, type ThemeMode } from "./lib/queryParams";
@@ -33,6 +34,27 @@ type TransformerScoring = {
 type CoachingRequirementIndicator = {
   label: string;
   state: "met" | "partial" | "missing";
+};
+
+type GuideMeApiSession = {
+  session_id: string;
+  conversation_id: string;
+  status: "active" | "complete" | "cancelled";
+  current_step: "intro" | "describe_need" | "who" | "why" | "how" | "what" | "refine" | "complete" | "cancelled";
+  question_title?: string | null;
+  question_text?: string | null;
+  answers: Record<string, string>;
+  requirements: Record<string, CoachingRequirementIndicator>;
+  personalization: {
+    first_name: string;
+    typical_ai_usage: string;
+    profile_label: string;
+    recent_examples: string[];
+  };
+  guidance_text?: string | null;
+  follow_up_questions: string[];
+  final_prompt?: string | null;
+  ready_to_insert: boolean;
 };
 
 type SessionBootstrap = {
@@ -98,6 +120,11 @@ export function App() {
   const [conversationId, setConversationId] = useState(createConversationId);
   const [transformerConversation, setTransformerConversation] = useState<TransformerConversation | null>(null);
   const [transformerScoring, setTransformerScoring] = useState<TransformerScoring | null>(null);
+  const [guideMeSession, setGuideMeSession] = useState<GuideMeSession | null>(null);
+  const [guideMeOpen, setGuideMeOpen] = useState(false);
+  const [guideMeBusy, setGuideMeBusy] = useState(false);
+  const [guideMeAnswer, setGuideMeAnswer] = useState("");
+  const [guideMeError, setGuideMeError] = useState<string | null>(null);
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
 
@@ -193,6 +220,14 @@ export function App() {
     void loadConversationSummaries();
   }, [session?.access_token]);
 
+  useEffect(() => {
+    if (!session?.access_token) {
+      return;
+    }
+
+    void loadGuideMeSession(`conv_${conversationId}`);
+  }, [conversationId, session?.access_token]);
+
   const inheritedEnforcementLevel = getInheritedEnforcementLevel(session?.user_id_hash ?? null);
 
   useEffect(() => {
@@ -207,6 +242,154 @@ export function App() {
     return {
       Authorization: `Bearer ${session.access_token}`,
     };
+  }
+
+  async function loadGuideMeSession(targetConversationId: string) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/guide-me/${targetConversationId}`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to load Guide Me session.");
+      }
+
+      const payload = (await response.json()) as { session?: GuideMeApiSession | null };
+      setGuideMeSession(payload.session ? mapGuideMeSession(payload.session) : null);
+      setGuideMeError(null);
+    } catch (loadError) {
+      setGuideMeSession(null);
+      setGuideMeError(loadError instanceof Error ? loadError.message : "Unable to load Guide Me session.");
+    }
+  }
+
+  async function startGuideMe() {
+    if (!session || guideMeBusy) {
+      return;
+    }
+
+    if (guideMeSession && guideMeSession.status !== "cancelled") {
+      setGuideMeOpen((value) => !value);
+      return;
+    }
+
+    setGuideMeBusy(true);
+    setGuideMeError(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/guide-me/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          conversation_id: `conv_${conversationId}`,
+          summary_type: summaryType,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to start Guide Me.");
+        throw new Error(errorMessage);
+      }
+
+      const payload = (await response.json()) as { session?: GuideMeApiSession | null };
+      setGuideMeSession(payload.session ? mapGuideMeSession(payload.session) : null);
+      setGuideMeOpen(true);
+      setGuideMeAnswer("");
+      setGuideMeError(null);
+      setConversationNotice("Guide Me is ready.");
+    } catch (guideError) {
+      setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to start Guide Me.");
+      setGuideMeOpen(true);
+    } finally {
+      setGuideMeBusy(false);
+    }
+  }
+
+  async function submitGuideMeAnswer() {
+    if (!session || !guideMeSession || !guideMeAnswer.trim() || guideMeBusy) {
+      return;
+    }
+
+    setGuideMeBusy(true);
+    setGuideMeError(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/guide-me/respond`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          conversation_id: guideMeSession.conversationId,
+          answer: guideMeAnswer.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to continue Guide Me.");
+        throw new Error(errorMessage);
+      }
+
+      const payload = (await response.json()) as { session?: GuideMeApiSession | null };
+      setGuideMeSession(payload.session ? mapGuideMeSession(payload.session) : null);
+      setGuideMeAnswer("");
+      if (payload.session?.ready_to_insert) {
+        setConversationNotice("Guide Me built a formatted prompt. Review it and insert it when ready.");
+      }
+    } catch (guideError) {
+      setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to continue Guide Me.");
+    } finally {
+      setGuideMeBusy(false);
+    }
+  }
+
+  async function cancelGuideMe() {
+    if (!session || !guideMeSession || guideMeBusy) {
+      setGuideMeOpen(false);
+      return;
+    }
+
+    setGuideMeBusy(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/guide-me/${guideMeSession.conversationId}/cancel`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to cancel Guide Me.");
+        throw new Error(errorMessage);
+      }
+
+      setGuideMeSession(null);
+      setGuideMeAnswer("");
+      setGuideMeError(null);
+      setGuideMeOpen(false);
+      setConversationNotice("Guide Me cancelled.");
+    } catch (guideError) {
+      setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to cancel Guide Me.");
+    } finally {
+      setGuideMeBusy(false);
+    }
+  }
+
+  function useGuideMePrompt() {
+    if (!guideMeSession?.finalPrompt) {
+      return;
+    }
+
+    setDraft(guideMeSession.finalPrompt);
+    setGuideMeOpen(false);
+    setGuideMeError(null);
+    setConversationNotice("Guide Me moved the formatted prompt into the composer.");
   }
 
   async function handleSubmit() {
@@ -460,6 +643,10 @@ export function App() {
     setUploadError(null);
     setError(null);
     setFeedbackDraft(null);
+    setGuideMeSession(null);
+    setGuideMeOpen(false);
+    setGuideMeAnswer("");
+    setGuideMeError(null);
     setConversationNotice(
       nextTransformEnabled
         ? "Conversation reset. Prompt Transformer is now on."
@@ -478,6 +665,10 @@ export function App() {
     setUploadError(null);
     setError(null);
     setFeedbackDraft(null);
+    setGuideMeSession(null);
+    setGuideMeOpen(false);
+    setGuideMeAnswer("");
+    setGuideMeError(null);
     setConversationNotice(
       nextSummaryType === null
         ? "Conversation reset. Using the selected user's default profile."
@@ -496,6 +687,10 @@ export function App() {
     setUploadError(null);
     setError(null);
     setFeedbackDraft(null);
+    setGuideMeSession(null);
+    setGuideMeOpen(false);
+    setGuideMeAnswer("");
+    setGuideMeError(null);
     setConversationNotice(`Conversation reset. Using ${nextEnforcementLevel} enforcement.`);
   }
 
@@ -595,6 +790,9 @@ export function App() {
       setDraft("");
       setAttachments([]);
       setUploadError(null);
+      setGuideMeAnswer("");
+      setGuideMeError(null);
+      setGuideMeOpen(false);
       if (isMobile) {
         setSidebarCollapsed(true);
       }
@@ -615,6 +813,10 @@ export function App() {
     setUploadError(null);
     setError(null);
     setFeedbackDraft(null);
+    setGuideMeSession(null);
+    setGuideMeOpen(false);
+    setGuideMeAnswer("");
+    setGuideMeError(null);
     if (isMobile) {
       setSidebarCollapsed(true);
     }
@@ -687,6 +889,10 @@ export function App() {
       setUploadError(null);
       setError(null);
       setFeedbackDraft(null);
+      setGuideMeSession(null);
+      setGuideMeOpen(false);
+      setGuideMeAnswer("");
+      setGuideMeError(null);
       if (isMobile) {
         setSidebarCollapsed(true);
       }
@@ -837,6 +1043,19 @@ export function App() {
         />
         <div className="chat-main">
           {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
+          <GuideMePanel
+            answer={guideMeAnswer}
+            busy={guideMeBusy}
+            error={guideMeError}
+            open={guideMeOpen}
+            session={guideMeSession}
+            onAnswerChange={setGuideMeAnswer}
+            onCancel={cancelGuideMe}
+            onClose={() => setGuideMeOpen(false)}
+            onLaunch={startGuideMe}
+            onSubmit={submitGuideMeAnswer}
+            onUsePrompt={useGuideMePrompt}
+          />
           <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
           {error ? <div className="error-banner">{error}</div> : null}
           <Composer
@@ -942,6 +1161,29 @@ function hasExplicitLabel(userText: string, key: string): boolean {
     output: "output:",
   };
   return normalized.includes(labels[key] ?? "");
+}
+
+function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
+  return {
+    sessionId: session.session_id,
+    conversationId: session.conversation_id,
+    status: session.status,
+    currentStep: session.current_step,
+    questionTitle: session.question_title ?? null,
+    questionText: session.question_text ?? null,
+    answers: session.answers ?? {},
+    requirements: session.requirements ?? {},
+    personalization: {
+      firstName: session.personalization.first_name,
+      typicalAiUsage: session.personalization.typical_ai_usage,
+      profileLabel: session.personalization.profile_label,
+      recentExamples: session.personalization.recent_examples ?? [],
+    },
+    guidanceText: session.guidance_text ?? null,
+    followUpQuestions: session.follow_up_questions ?? [],
+    finalPrompt: session.final_prompt ?? null,
+    readyToInsert: session.ready_to_insert,
+  };
 }
 
 async function extractErrorMessage(response: Response, fallbackMessage: string) {

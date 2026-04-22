@@ -110,6 +110,20 @@ class ConversationService:
         finally:
             session.close()
 
+    def list_recent_user_prompts(self, *, user_id_hash: str, limit: int = 12) -> list[str]:
+        session = get_session()
+        try:
+            result = session.execute(
+                select(ConversationTurn.user_text)
+                .join(Conversation, Conversation.id == ConversationTurn.conversation_id)
+                .where(Conversation.user_id_hash == user_id_hash)
+                .order_by(ConversationTurn.created_at.desc())
+                .limit(limit)
+            )
+            return [value for value in result.scalars().all() if isinstance(value, str) and value.strip()]
+        finally:
+            session.close()
+
     def append_turn(
         self,
         *,
