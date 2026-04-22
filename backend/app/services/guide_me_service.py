@@ -281,15 +281,7 @@ class GuideMeService:
             return fallback_guidance, fallback_questions
 
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
-        fallback_prompt = _compose_final_prompt(answers)
-        try:
-            prompt = _build_final_prompt_prompt(answers=answers, personalization=personalization)
-            response_text = await self.llm_client.generate_text(prompt=prompt)
-            parsed = _extract_json_object(response_text)
-            final_prompt = str(parsed.get("final_prompt") or "").strip()
-            return final_prompt or fallback_prompt
-        except Exception:
-            return fallback_prompt
+        return _compose_final_prompt(answers)
 
 
 def _question_for_session(
@@ -411,15 +403,25 @@ def _derive_follow_up_questions(answers: dict[str, str], profile_label: str) -> 
 
 def _compose_final_prompt(answers: dict[str, str]) -> str:
     refinements = answers.get("refinements", "").strip()
-    sections = [
-        ("Who", answers.get("who", "").strip()),
-        ("Task", answers.get("task", "").strip()),
-        ("Context", _merge_sections(answers.get("context", ""), refinements)),
-        ("Output", answers.get("output", "").strip()),
-        ("Instructions", answers.get("instructions", "").strip()),
-    ]
-    lines = [f"{label}: {value}" for label, value in sections if value]
-    return "\n\n".join(lines).strip()
+    who = answers.get("who", "").strip()
+    task = answers.get("task", "").strip()
+    context = _merge_sections(answers.get("context", ""), refinements)
+    output = answers.get("output", "").strip()
+    instructions = answers.get("instructions", "").strip()
+
+    sections: list[str] = []
+    if who:
+        sections.append(f"You are {who}.")
+    if task:
+        sections.append(f"Your task is to {task}.")
+    if instructions:
+        sections.append(f"Instructions:\n{instructions}")
+    if context:
+        sections.append(f"Context:\n{context}")
+    if output:
+        sections.append(f"Output requirements:\n{output}")
+
+    return "\n\n".join(section.strip() for section in sections if section.strip()).strip()
 
 
 def _merge_sections(primary: str, secondary: str) -> str:
@@ -448,17 +450,6 @@ def _build_refinement_prompt(*, answers: dict[str, str], personalization: dict) 
         "Personalize tone using the supplied profile context. "
         f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
         f"Prompt draft fields: {json.dumps(answers, ensure_ascii=True)}"
-    )
-
-
-def _build_final_prompt_prompt(*, answers: dict[str, str], personalization: dict) -> str:
-    return (
-        "You are formatting a polished final prompt for a guided prompt builder. "
-        "Return strict JSON with one key named final_prompt. "
-        "The prompt must be concise, clear, and structured with sections named Who, Task, Context, Output, and Instructions. "
-        "Do not add markdown fences. "
-        f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
-        f"Prompt fields: {json.dumps(answers, ensure_ascii=True)}"
     )
 
 

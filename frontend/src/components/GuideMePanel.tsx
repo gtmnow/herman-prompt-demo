@@ -34,6 +34,7 @@ type GuideMePanelProps = {
   onCancel: () => void;
   onClose: () => void;
   onLaunch: () => void;
+  onRestart: () => void;
   onSubmit: () => void;
   onUsePrompt: () => void;
 };
@@ -48,6 +49,7 @@ export function GuideMePanel({
   onCancel,
   onClose,
   onLaunch,
+  onRestart,
   onSubmit,
   onUsePrompt,
 }: GuideMePanelProps) {
@@ -65,38 +67,21 @@ export function GuideMePanel({
               {session?.questionTitle ?? "Start guided prompting"}
             </h3>
           </div>
-          <button className="modal-close" type="button" onClick={onClose}>
-            Close
-          </button>
+          <div className="guide-me-panel-toolbar">
+            {session ? (
+              <button className="feedback-button" disabled={busy} type="button" onClick={onRestart}>
+                Restart
+              </button>
+            ) : null}
+            <button className="modal-close" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </div>
 
         {session ? (
           <>
             <GuideIndicators requirements={session.requirements} />
-
-            <div className="guide-me-meta">
-              <div className="guide-me-meta-card">
-                <span className="guide-me-meta-label">Typical usage</span>
-                <span>{session.personalization.typicalAiUsage}</span>
-              </div>
-              <div className="guide-me-meta-card">
-                <span className="guide-me-meta-label">Profile</span>
-                <span>{session.personalization.profileLabel}</span>
-              </div>
-            </div>
-
-            {session.personalization.recentExamples.length > 0 ? (
-              <div className="guide-me-examples">
-                <span className="guide-me-meta-label">Recent patterns</span>
-                <div className="guide-me-example-list">
-                  {session.personalization.recentExamples.map((example, index) => (
-                    <div key={`${example}-${index}`} className="guide-me-example-chip">
-                      {example}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
 
             {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
             {session.guidanceText ? <div className="guide-me-guidance">{session.guidanceText}</div> : null}

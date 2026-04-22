@@ -267,12 +267,12 @@ export function App() {
     }
   }
 
-  async function startGuideMe() {
+  async function startGuideMe(forceRestart = false) {
     if (!session || guideMeBusy) {
       return;
     }
 
-    if (guideMeSession && guideMeSession.status !== "cancelled") {
+    if (!forceRestart && guideMeSession && guideMeSession.status !== "cancelled") {
       setGuideMeOpen((value) => !value);
       return;
     }
@@ -330,6 +330,14 @@ export function App() {
     }
 
     void startGuideMe();
+  }
+
+  function restartGuideMe() {
+    if (feedbackDraft) {
+      setFeedbackDraft(null);
+    }
+    setGuideMeAnswer("");
+    void startGuideMe(true);
   }
 
   async function submitGuideMeAnswer() {
@@ -1130,6 +1138,7 @@ export function App() {
         onCancel={cancelGuideMe}
         onClose={() => setGuideMeOpen(false)}
         onLaunch={startGuideMe}
+        onRestart={restartGuideMe}
         onSubmit={submitGuideMeAnswer}
         onUsePrompt={useGuideMePrompt}
       />

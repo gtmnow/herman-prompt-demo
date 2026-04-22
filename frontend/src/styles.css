@@ -451,41 +451,24 @@ input {
   gap: 16px;
 }
 
+.guide-me-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .guide-me-panel-title {
   margin: 6px 0 0;
   font-size: 1.2rem;
 }
 
-.guide-me-meta {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.guide-me-meta-card,
 .guide-me-question,
 .guide-me-guidance,
-.guide-me-final,
-.guide-me-examples {
+.guide-me-final {
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: color-mix(in srgb, var(--panel-soft) 76%, transparent);
-}
-
-.guide-me-example-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.guide-me-example-chip {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  font-size: 0.9rem;
 }
 
 .guide-me-question,
@@ -1105,10 +1088,6 @@ input {
   .message-header {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .guide-me-meta {
-    grid-template-columns: 1fr;
   }
 
   .composer-actions {
