@@ -107,42 +107,19 @@ class GuideMeService:
             if guide_session.current_step == "intro":
                 answers["intro_confirmation"] = answer
                 if _looks_like_yes(normalized):
-                    answers["task"] = str((guide_session.personalization or {}).get("typical_ai_usage") or "").strip()
-                    guide_session.current_step = "who"
+                    if not answers.get("task"):
+                        answers["task"] = str((guide_session.personalization or {}).get("typical_ai_usage") or "").strip()
                 else:
                     guide_session.current_step = "describe_need"
+                    guide_session.answers = answers
+                    guide_session.updated_at = datetime.utcnow()
+                    session.commit()
+                    session.refresh(guide_session)
+                    return GuideMeSessionResponse(session=self._serialize_session(guide_session))
             elif guide_session.current_step == "describe_need":
-                answers["task"] = answer
-                guide_session.current_step = "who"
-            elif guide_session.current_step == "who":
-                answers["who"] = answer
-                guide_session.current_step = "why"
-            elif guide_session.current_step == "why":
-                answers["instructions"] = answer
-                guide_session.current_step = "how"
-            elif guide_session.current_step == "how":
-                answers["context"] = answer
-                guide_session.current_step = "what"
-            elif guide_session.current_step == "what":
-                answers["output"] = answer
-                guidance_text, follow_up_questions = await self._generate_refinement(
-                    answers=answers,
-                    personalization=guide_session.personalization or {},
-                )
-                guide_session.guidance_text = guidance_text
-                guide_session.follow_up_questions = follow_up_questions
-                if follow_up_questions:
-                    guide_session.current_step = "refine"
-                else:
-                    final_prompt = await self._generate_final_prompt(
-                        answers=answers,
-                        personalization=guide_session.personalization or {},
-                    )
-                    await self._apply_validation_result(
-                        guide_session=guide_session,
-                        answers=answers,
-                        final_prompt=final_prompt,
-                    )
+                pass
+            elif guide_session.current_step in {"who", "why", "how", "what"}:
+                pass
             elif guide_session.current_step == "refine":
                 answers["refinements"] = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
                 final_prompt = await self._generate_final_prompt(
@@ -156,6 +133,47 @@ class GuideMeService:
                 )
             else:
                 raise ValueError("Guide Me session is already complete.")
+
+            if guide_session.current_step != "refine":
+                extracted_updates = await self._extract_answer_updates(
+                    current_step=guide_session.current_step,
+                    answer=answer,
+                    answers=answers,
+                    personalization=guide_session.personalization or {},
+                )
+                answers.update({key: value for key, value in extracted_updates.items() if value})
+
+                if guide_session.current_step == "describe_need" and not answers.get("task"):
+                    answers["task"] = answer
+
+                if _required_sections_complete(answers):
+                    guidance_text, follow_up_questions = await self._generate_refinement(
+                        answers=answers,
+                        personalization=guide_session.personalization or {},
+                    )
+                    if follow_up_questions:
+                        guide_session.guidance_text = guidance_text
+                        guide_session.follow_up_questions = follow_up_questions
+                        guide_session.current_step = "refine"
+                        guide_session.status = "active"
+                    else:
+                        final_prompt = await self._generate_final_prompt(
+                            answers=answers,
+                            personalization=guide_session.personalization or {},
+                        )
+                        await self._apply_validation_result(
+                            guide_session=guide_session,
+                            answers=answers,
+                            final_prompt=final_prompt,
+                        )
+                else:
+                    next_step = _next_collection_step(answers)
+                    guide_session.current_step = next_step
+                    guide_session.status = "active"
+                    target_field = answers.get("_target_field")
+                    field_for_guidance = _step_to_field(next_step) or target_field
+                    guide_session.guidance_text = _build_field_guidance(field_for_guidance)
+                    guide_session.follow_up_questions = []
 
             guide_session.answers = answers
             guide_session.updated_at = datetime.utcnow()
@@ -307,6 +325,33 @@ class GuideMeService:
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
         return _compose_final_prompt(answers)
 
+    async def _extract_answer_updates(
+        self,
+        *,
+        current_step: str,
+        answer: str,
+        answers: dict[str, str],
+        personalization: dict,
+    ) -> dict[str, str]:
+        fallback = _heuristic_extract_answer_updates(current_step=current_step, answer=answer)
+        try:
+            prompt = _build_answer_extraction_prompt(
+                current_step=current_step,
+                answer=answer,
+                answers=answers,
+                personalization=personalization,
+            )
+            response_text = await self.llm_client.generate_text(prompt=prompt)
+            parsed = _extract_json_object(response_text)
+            extracted: dict[str, str] = {}
+            for key in ("who", "task", "context", "output", "instructions"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    extracted[key] = value.strip()
+            return extracted or fallback
+        except Exception:
+            return fallback
+
     async def _analyze_source_prompt(
         self,
         *,
@@ -387,11 +432,16 @@ class GuideMeService:
             return {"passes": True, "failing_field": None, "guidance_text": ""}
 
         failing_field = _first_failing_requirement(transformed.get("conversation"))
-        passes = transformed.get("result_type") == "transformed" and failing_field is None
+        score = await self.transformer_client.fetch_conversation_score(
+            conversation_id=guide_session.conversation_id,
+            user_id=guide_session.user_id_hash,
+        )
+        perfect_score = _is_perfect_score(score)
+        passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         return {
             "passes": passes,
             "failing_field": failing_field,
-            "guidance_text": _build_field_guidance(failing_field) if failing_field else "",
+            "guidance_text": _build_field_guidance(failing_field) if failing_field else _build_score_guidance(score),
         }
 
 
@@ -566,6 +616,27 @@ def _build_refinement_prompt(*, answers: dict[str, str], personalization: dict) 
     )
 
 
+def _build_answer_extraction_prompt(
+    *,
+    current_step: str,
+    answer: str,
+    answers: dict[str, str],
+    personalization: dict,
+) -> str:
+    visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    return (
+        "You are helping a guided prompt builder merge one user answer into structured prompt sections. "
+        "Return strict JSON with optional keys who, task, context, output, instructions. "
+        "Populate every section that is clearly implied by the user's answer, even if it was asked in a different step. "
+        "Do not repeat existing values unless the answer improves them. "
+        "Leave keys empty if the answer does not provide that information.\n"
+        f"Current step: {current_step}\n"
+        f"Existing sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
+        f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
+        f"User answer: {answer}"
+    )
+
+
 def _extract_json_object(text: str) -> dict:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -579,6 +650,58 @@ def _extract_json_object(text: str) -> dict:
 def _looks_like_yes(value: str) -> bool:
     normalized = value.strip().lower()
     return normalized in {"y", "yes", "yeah", "yep", "sure", "correct"}
+
+
+def _required_sections_complete(answers: dict[str, str]) -> bool:
+    return all((answers.get(key) or "").strip() for key in ("who", "task", "context", "output"))
+
+
+def _next_collection_step(answers: dict[str, str]) -> str:
+    target_field = answers.get("_target_field")
+    if isinstance(target_field, str) and not (answers.get(target_field) or "").strip():
+        return _field_to_step(target_field)
+
+    for field in ("task", "who", "context", "output"):
+        if not (answers.get(field) or "").strip():
+            return _field_to_step(field)
+    return "refine"
+
+
+def _step_to_field(step: str) -> str | None:
+    return {
+        "describe_need": "task",
+        "who": "who",
+        "how": "context",
+        "what": "output",
+        "why": "instructions",
+    }.get(step)
+
+
+def _heuristic_extract_answer_updates(*, current_step: str, answer: str) -> dict[str, str]:
+    updates: dict[str, str] = {}
+    cleaned = answer.strip()
+    normalized = cleaned.lower()
+
+    if current_step == "who":
+        if " to " in normalized:
+            before, _, after = cleaned.partition(" to ")
+            updates["who"] = before.strip().rstrip(".")
+            updates["task"] = after.strip()
+        else:
+            updates["who"] = cleaned
+    elif current_step == "describe_need":
+        updates["task"] = cleaned
+    elif current_step == "why":
+        updates["instructions"] = cleaned
+    elif current_step == "how":
+        updates["context"] = cleaned
+    elif current_step == "what":
+        updates["output"] = cleaned
+
+    if "for " in normalized and "year old" in normalized and not updates.get("context"):
+        updates["context"] = cleaned
+
+    return updates
 
 
 def _extract_labeled_answers(source_prompt: str) -> dict[str, str]:
@@ -626,6 +749,29 @@ def _build_field_guidance(field: str | None) -> str:
         "output": 'A strong "Output" specifies the delivery format. Example: Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.',
     }
     return guidance.get(field, "")
+
+
+def _build_score_guidance(score: dict | None) -> str:
+    if not score:
+        return ""
+    final_score = score.get("final_score")
+    final_llm_score = score.get("final_llm_score")
+    return (
+        "Your prompt now passes the required sections, but it still needs more precision to reach 100/100. "
+        f"Current score: {final_score}/{final_llm_score}. Add clearer constraints, context, and output detail."
+    )
+
+
+def _is_perfect_score(score: dict | None) -> bool:
+    if not score:
+        return True
+    final_score = score.get("final_score")
+    final_llm_score = score.get("final_llm_score")
+    if final_score != 100:
+        return False
+    if final_llm_score is None:
+        return True
+    return final_llm_score == 100
 
 
 def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
