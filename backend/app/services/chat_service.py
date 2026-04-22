@@ -75,7 +75,11 @@ class ChatService:
                 transformation_applied = True
                 bypass_reason = None
                 assistant_kind = "assistant"
-                persisted_coaching_text = coaching_tip or ""
+                persisted_coaching_text = _enhance_coaching_tip(
+                    coaching_tip,
+                    raw_user_text=raw_user_text,
+                    transformer_conversation=transformer_conversation,
+                )
                 coaching_requirements = (
                     _build_coaching_requirements(raw_user_text, transformer_conversation)
                     if persisted_coaching_text
@@ -98,7 +102,11 @@ class ChatService:
                 assistant_kind = "coaching"
                 persisted_coaching_text = ""
                 coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
-                assistant_text = coaching_tip or "Add more prompt structure and try again."
+                assistant_text = _enhance_coaching_tip(
+                    coaching_tip or "Add more prompt structure and try again.",
+                    raw_user_text=raw_user_text,
+                    transformer_conversation=transformer_conversation,
+                )
                 assistant_images = []
             else:
                 transformed_prompt = ""
@@ -265,3 +273,47 @@ def _has_explicit_label(raw_user_text: str, key: str) -> bool:
         "output": "output:",
     }
     return label_map[key] in normalized
+
+
+def _enhance_coaching_tip(
+    coaching_tip: str | None,
+    *,
+    raw_user_text: str,
+    transformer_conversation: dict | None,
+) -> str:
+    base_tip = (coaching_tip or "Add more prompt structure and try again.").strip()
+    example = _example_for_first_failing_requirement(raw_user_text, transformer_conversation)
+    if not example:
+        return base_tip
+    if "Example:" in base_tip:
+        return base_tip
+    return f"{base_tip} Example: {example}"
+
+
+def _example_for_first_failing_requirement(raw_user_text: str, transformer_conversation: dict | None) -> str | None:
+    requirements = (transformer_conversation or {}).get("requirements")
+    if not isinstance(requirements, dict):
+        return None
+
+    ordered_keys = ("who", "task", "context", "output")
+    failing_key = next(
+        (
+            key
+            for key in ordered_keys
+            if _indicator_state_for_requirement(
+                raw_user_text,
+                key,
+                requirements.get(key, {}).get("status") if isinstance(requirements.get(key), dict) else None,
+            )
+            != "met"
+        ),
+        None,
+    )
+
+    examples = {
+        "who": "Who: You are a U.S. historian who explains events in kid-friendly language.",
+        "task": "Task: Explain why George Washington is famous and what made him important in early American history.",
+        "context": "Context: This is for a 10-year-old's book report, so keep it simple, accurate, and easy to follow.",
+        "output": "Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.",
+    }
+    return examples.get(failing_key) if failing_key else None

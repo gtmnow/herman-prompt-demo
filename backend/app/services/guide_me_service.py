@@ -18,12 +18,14 @@ from app.schemas.chat import (
 )
 from app.services.conversation_service import ConversationService
 from app.services.llm_client import LlmClient
+from app.services.transformer_client import TransformerClient
 
 
 class GuideMeService:
     def __init__(self) -> None:
         self.conversation_service = ConversationService()
         self.llm_client = LlmClient()
+        self.transformer_client = TransformerClient()
 
     async def start_session(
         self,
@@ -35,6 +37,18 @@ class GuideMeService:
             user=user,
             summary_type=payload.summary_type,
         )
+        source_prompt = (payload.source_prompt or "").strip()
+        source_analysis = await self._analyze_source_prompt(
+            conversation_id=payload.conversation_id,
+            user=user,
+            source_prompt=source_prompt,
+            summary_type=payload.summary_type,
+            enforcement_level=payload.enforcement_level,
+        )
+        initial_answers = source_analysis.get("answers", {})
+        initial_step = source_analysis.get("current_step", "intro")
+        initial_guidance = source_analysis.get("guidance_text", "")
+        initial_options = source_analysis.get("refinement_options", [])
 
         session = get_session()
         try:
@@ -53,11 +67,11 @@ class GuideMeService:
                 conversation_id=payload.conversation_id,
                 user_id_hash=user.user_id_hash,
                 status="active",
-                current_step="intro",
-                answers={},
+                current_step=initial_step,
+                answers=initial_answers,
                 personalization=personalization,
-                guidance_text="",
-                follow_up_questions=[],
+                guidance_text=initial_guidance,
+                follow_up_questions=initial_options,
                 final_prompt="",
             )
             session.add(guide_session)
@@ -120,19 +134,25 @@ class GuideMeService:
                 if follow_up_questions:
                     guide_session.current_step = "refine"
                 else:
-                    guide_session.current_step = "complete"
-                    guide_session.status = "complete"
-                    guide_session.final_prompt = await self._generate_final_prompt(
+                    final_prompt = await self._generate_final_prompt(
                         answers=answers,
                         personalization=guide_session.personalization or {},
                     )
+                    await self._apply_validation_result(
+                        guide_session=guide_session,
+                        answers=answers,
+                        final_prompt=final_prompt,
+                    )
             elif guide_session.current_step == "refine":
-                answers["refinements"] = answer
-                guide_session.current_step = "complete"
-                guide_session.status = "complete"
-                guide_session.final_prompt = await self._generate_final_prompt(
+                answers["refinements"] = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
+                final_prompt = await self._generate_final_prompt(
                     answers=answers,
                     personalization=guide_session.personalization or {},
+                )
+                await self._apply_validation_result(
+                    guide_session=guide_session,
+                    answers=answers,
+                    final_prompt=final_prompt,
                 )
             else:
                 raise ValueError("Guide Me session is already complete.")
@@ -202,7 +222,11 @@ class GuideMeService:
             current_step=guide_session.current_step,
             question_title=question_title,
             question_text=question_text,
-            answers={str(key): str(value) for key, value in (guide_session.answers or {}).items() if value},
+            answers={
+                str(key): str(value)
+                for key, value in (guide_session.answers or {}).items()
+                if value and not str(key).startswith("_")
+            },
             requirements=_build_requirement_indicators(guide_session.answers or {}),
             personalization=personalization,
             guidance_text=guide_session.guidance_text or None,
@@ -264,14 +288,14 @@ class GuideMeService:
 
     async def _generate_refinement(self, *, answers: dict[str, str], personalization: dict) -> tuple[str, list[str]]:
         fallback_guidance = _build_guidance_text(answers)
-        fallback_questions = _derive_follow_up_questions(answers, profile_label=str(personalization.get("profile_label") or ""))
+        fallback_questions = _derive_refinement_options(answers)
 
         try:
             prompt = _build_refinement_prompt(answers=answers, personalization=personalization)
             response_text = await self.llm_client.generate_text(prompt=prompt)
             parsed = _extract_json_object(response_text)
             guidance = str(parsed.get("guidance_text") or "").strip() or fallback_guidance
-            raw_questions = parsed.get("follow_up_questions")
+            raw_questions = parsed.get("refinement_options") or parsed.get("follow_up_questions")
             if isinstance(raw_questions, list):
                 follow_up_questions = [str(item).strip() for item in raw_questions if str(item).strip()][:5]
             else:
@@ -282,6 +306,93 @@ class GuideMeService:
 
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
         return _compose_final_prompt(answers)
+
+    async def _analyze_source_prompt(
+        self,
+        *,
+        conversation_id: str,
+        user: AuthenticatedUser,
+        source_prompt: str,
+        summary_type: int | None,
+        enforcement_level: str | None,
+    ) -> dict:
+        if not source_prompt:
+            return {"answers": {}, "current_step": "intro", "guidance_text": "", "refinement_options": []}
+
+        answers = _extract_labeled_answers(source_prompt)
+        answers["_source_prompt"] = source_prompt
+        if summary_type is not None:
+            answers["_summary_type"] = str(summary_type)
+        if enforcement_level:
+            answers["_enforcement_level"] = enforcement_level
+
+        try:
+            transformed = await self.transformer_client.transform_prompt(
+                session_id=f"{conversation_id}-guide",
+                conversation_id=conversation_id,
+                user_id=user.user_id_hash,
+                raw_prompt=source_prompt,
+                summary_type=summary_type,
+                enforcement_level=enforcement_level,
+            )
+            failing_field = _first_failing_requirement(transformed.get("conversation"))
+            if failing_field:
+                answers["_target_field"] = failing_field
+                current_step = _field_to_step(failing_field)
+                guidance_text = _build_field_guidance(failing_field)
+                return {
+                    "answers": answers,
+                    "current_step": current_step,
+                    "guidance_text": guidance_text,
+                    "refinement_options": [],
+                }
+        except Exception:
+            pass
+
+        return {"answers": answers, "current_step": "intro", "guidance_text": "", "refinement_options": []}
+
+    async def _apply_validation_result(self, *, guide_session: GuideMeSession, answers: dict[str, str], final_prompt: str) -> None:
+        validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
+        if validation["passes"]:
+            guide_session.current_step = "complete"
+            guide_session.status = "complete"
+            guide_session.final_prompt = final_prompt
+            guide_session.guidance_text = ""
+            guide_session.follow_up_questions = []
+            return
+
+        failing_field = validation["failing_field"]
+        if failing_field:
+            guide_session.current_step = _field_to_step(failing_field)
+        guide_session.status = "active"
+        guide_session.final_prompt = ""
+        guide_session.guidance_text = validation["guidance_text"]
+        guide_session.follow_up_questions = []
+
+    async def _validate_compiled_prompt(self, *, guide_session: GuideMeSession, final_prompt: str) -> dict[str, object]:
+        answers = guide_session.answers or {}
+        summary_type_raw = answers.get("_summary_type")
+        summary_type = int(summary_type_raw) if isinstance(summary_type_raw, str) and summary_type_raw.isdigit() else None
+        enforcement_level = answers.get("_enforcement_level")
+        try:
+            transformed = await self.transformer_client.transform_prompt(
+                session_id=f"{guide_session.conversation_id}-guide-validate",
+                conversation_id=guide_session.conversation_id,
+                user_id=guide_session.user_id_hash,
+                raw_prompt=final_prompt,
+                summary_type=summary_type,
+                enforcement_level=enforcement_level,
+            )
+        except Exception:
+            return {"passes": True, "failing_field": None, "guidance_text": ""}
+
+        failing_field = _first_failing_requirement(transformed.get("conversation"))
+        passes = transformed.get("result_type") == "transformed" and failing_field is None
+        return {
+            "passes": passes,
+            "failing_field": failing_field,
+            "guidance_text": _build_field_guidance(failing_field) if failing_field else "",
+        }
 
 
 def _question_for_session(
@@ -383,22 +494,23 @@ def _build_guidance_text(answers: dict[str, str]) -> str:
     if len(answers.get("context", "").split()) < 10:
         suggestions.append("Add more context so the response can be better grounded.")
     if len(answers.get("output", "").split()) < 6:
-        suggestions.append("Be more specific about the final format.")
+        suggestions.append(
+            "Be more specific about the final format. Example: Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language."
+        )
     return " ".join(suggestions[:3]) or "This is already strong. A few quick refinements could make the final prompt even sharper."
 
 
-def _derive_follow_up_questions(answers: dict[str, str], profile_label: str) -> list[str]:
+def _derive_refinement_options(answers: dict[str, str]) -> list[str]:
     questions: list[str] = []
     if len(answers.get("task", "").split()) < 6:
-        questions.append("What is the most important outcome or decision this should support?")
+        questions.append("Clarify the main outcome or decision the answer should support.")
     if len(answers.get("instructions", "").split()) < 10:
-        questions.append("What constraints, preferences, or things to avoid should I follow?")
+        questions.append("Add explicit constraints, preferences, or things the response should avoid.")
     if len(answers.get("context", "").split()) < 12:
-        questions.append("What background, audience, or business context would help me answer well?")
+        questions.append("Add more audience or background context so the answer fits the situation better.")
     if len(answers.get("output", "").split()) < 8:
-        questions.append("What exact format, length, or structure should the final response use?")
-    max_questions = 4 if profile_label.endswith(("7", "8", "9")) else 3
-    return questions[:max_questions]
+        questions.append("Specify the exact format, length, and structure for the final response.")
+    return questions[:4]
 
 
 def _compose_final_prompt(answers: dict[str, str]) -> str:
@@ -420,6 +532,8 @@ def _compose_final_prompt(answers: dict[str, str]) -> str:
         sections.append(f"Context:\n{context}")
     if output:
         sections.append(f"Output requirements:\n{output}")
+    if refinements:
+        sections.append(f"Additional preferences:\n{refinements}")
 
     return "\n\n".join(section.strip() for section in sections if section.strip()).strip()
 
@@ -445,8 +559,8 @@ def _build_why_example(personalization: GuideMePersonalization, answers: dict[st
 def _build_refinement_prompt(*, answers: dict[str, str], personalization: dict) -> str:
     return (
         "You are refining a guided prompt builder. "
-        "Return strict JSON with keys guidance_text and follow_up_questions. "
-        "Keep guidance under 2 short sentences. Ask no more than 5 short questions. "
+        "Return strict JSON with keys guidance_text and refinement_options. "
+        "Keep guidance under 2 short sentences. Provide no more than 5 short refinement options phrased as direct improvements, not questions. "
         "Personalize tone using the supplied profile context. "
         f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
         f"Prompt draft fields: {json.dumps(answers, ensure_ascii=True)}"
@@ -466,3 +580,66 @@ def _extract_json_object(text: str) -> dict:
 def _looks_like_yes(value: str) -> bool:
     normalized = value.strip().lower()
     return normalized in {"y", "yes", "yeah", "yep", "sure", "correct"}
+
+
+def _extract_labeled_answers(source_prompt: str) -> dict[str, str]:
+    answer_map: dict[str, str] = {}
+    labels = {
+        "who": "Who:",
+        "task": "Task:",
+        "context": "Context:",
+        "output": "Output:",
+    }
+    for key, label in labels.items():
+        pattern = rf"{label}\s*(.*?)(?=\n(?:Who:|Task:|Context:|Output:)|\Z)"
+        match = re.search(pattern, source_prompt, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            answer_map[key] = match.group(1).strip()
+    return answer_map
+
+
+def _first_failing_requirement(transformer_conversation: dict | None) -> str | None:
+    requirements = (transformer_conversation or {}).get("requirements")
+    if not isinstance(requirements, dict):
+        return None
+    for key in ("who", "task", "context", "output"):
+        requirement = requirements.get(key)
+        status = requirement.get("status") if isinstance(requirement, dict) else None
+        if status in {"missing", "derived"}:
+            return key
+    return None
+
+
+def _field_to_step(field: str) -> str:
+    return {
+        "task": "describe_need",
+        "who": "who",
+        "context": "how",
+        "output": "what",
+    }.get(field, "intro")
+
+
+def _build_field_guidance(field: str | None) -> str:
+    guidance = {
+        "who": 'A strong "Who" tells the model who to act like. Example: Who: You are a U.S. historian who explains events in kid-friendly language.',
+        "task": 'A strong "Task" clearly states the job to do. Example: Task: Explain why George Washington is famous and what made him important in early American history.',
+        "context": 'A strong "Context" explains the audience and situation. Example: Context: This is for a 10-year-old\'s book report, so keep it simple, accurate, and easy to follow.',
+        "output": 'A strong "Output" specifies the delivery format. Example: Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.',
+    }
+    return guidance.get(field, "")
+
+
+def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
+    normalized = answer.strip()
+    if not options:
+        return normalized
+
+    selected: list[str] = []
+    seen = set()
+    for match in re.findall(r"\b(\d+)\b", normalized):
+        index = int(match) - 1
+        if 0 <= index < len(options) and index not in seen:
+            selected.append(options[index])
+            seen.add(index)
+
+    return "\n".join(selected) if selected else normalized

@@ -61,6 +61,8 @@ class ChatSendRequest(BaseModel):
 class GuideMeStartRequest(BaseModel):
     conversation_id: str = Field(min_length=1)
     summary_type: int | None = Field(default=None, ge=1, le=9)
+    source_prompt: str | None = None
+    enforcement_level: Literal["none", "low", "moderate", "full"] | None = None
 
 
 class GuideMeRespondRequest(BaseModel):

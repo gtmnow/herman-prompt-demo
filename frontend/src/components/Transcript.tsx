@@ -22,7 +22,7 @@ type TranscriptProps = {
   turns: TranscriptTurn[];
   showDetails: boolean;
   loading: boolean;
-  onOpenGuideMe: () => void;
+  onOpenGuideMe: (sourcePrompt?: string) => void;
   onOpenFeedback: (turnId: string, feedbackType: "up" | "down") => void;
 };
 
@@ -69,7 +69,7 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpen
             <article className="message-row message-coaching">
               <div className="message-header">
                 <div className="message-label">Coaching</div>
-                <button className="guide-me-inline-button" type="button" onClick={onOpenGuideMe}>
+                <button className="guide-me-inline-button" type="button" onClick={() => onOpenGuideMe(turn.userText)}>
                   Guide Me
                 </button>
               </div>
@@ -96,7 +96,7 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpen
                     : "Assistant"}
               </div>
               {turn.assistantKind === "coaching" ? (
-                <button className="guide-me-inline-button" type="button" onClick={onOpenGuideMe}>
+                <button className="guide-me-inline-button" type="button" onClick={() => onOpenGuideMe(turn.userText)}>
                   Guide Me
                 </button>
               ) : null}

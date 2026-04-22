@@ -16,7 +16,7 @@ type ComposerProps = {
   uploading: boolean;
   value: string;
   onFileSelect: (files: FileList | null) => void;
-  onGuideMe: () => void;
+  onGuideMe: (sourcePrompt: string) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -118,7 +118,7 @@ export function Composer({
           className={`guide-me-composer-button ${guideMeActive ? "is-active" : ""}`}
           disabled={disabled || uploading}
           type="button"
-          onClick={onGuideMe}
+          onClick={() => onGuideMe(value)}
         >
           Guide Me
         </button>

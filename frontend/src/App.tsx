@@ -267,7 +267,7 @@ export function App() {
     }
   }
 
-  async function startGuideMe(forceRestart = false) {
+  async function startGuideMe(forceRestart = false, sourcePrompt?: string) {
     if (!session || guideMeBusy) {
       return;
     }
@@ -290,6 +290,8 @@ export function App() {
         body: JSON.stringify({
           conversation_id: `conv_${conversationId}`,
           summary_type: summaryType,
+          source_prompt: sourcePrompt?.trim() || undefined,
+          enforcement_level: enforcementLevel,
         }),
       });
 
@@ -312,7 +314,7 @@ export function App() {
     }
   }
 
-  function openGuideMe() {
+  function openGuideMe(sourcePrompt?: string) {
     if (feedbackDraft) {
       setTurns((current) =>
         current.map((turn) =>
@@ -329,7 +331,14 @@ export function App() {
       return;
     }
 
-    void startGuideMe();
+    const fallbackPrompt =
+      sourcePrompt?.trim() ||
+      draft.trim() ||
+      turns.slice().reverse().find((turn) => turn.assistantKind === "coaching")?.userText ||
+      turns.slice().reverse()[0]?.userText ||
+      "";
+
+    void startGuideMe(false, fallbackPrompt);
   }
 
   function restartGuideMe() {
@@ -337,7 +346,12 @@ export function App() {
       setFeedbackDraft(null);
     }
     setGuideMeAnswer("");
-    void startGuideMe(true);
+    const sourcePrompt =
+      guideMeSession?.answers.source_prompt ||
+      guideMeSession?.answers._source_prompt ||
+      draft.trim() ||
+      "";
+    void startGuideMe(true, sourcePrompt);
   }
 
   async function submitGuideMeAnswer() {
@@ -1108,7 +1122,7 @@ export function App() {
           comments={feedbackDraft.comments}
           error={feedbackDraft.error}
           feedbackType={feedbackDraft.feedbackType}
-          onOpenGuideMe={openGuideMe}
+          onOpenGuideMe={() => openGuideMe(turns.find((turn) => turn.id === feedbackDraft.turnId)?.userText)}
           selectedDimensions={feedbackDraft.selectedDimensions}
           submitting={feedbackDraft.submitting}
           onClose={() => {
