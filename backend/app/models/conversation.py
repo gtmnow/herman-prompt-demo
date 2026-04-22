@@ -24,6 +24,11 @@ class Conversation(Base):
         cascade="all, delete-orphan",
         order_by="ConversationTurn.created_at",
     )
+    guide_me_sessions: Mapped[list["GuideMeSession"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="GuideMeSession.created_at",
+    )
 
 
 class ConversationTurn(Base):
@@ -60,3 +65,5 @@ class GuideMeSession(Base):
     final_prompt: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="guide_me_sessions")

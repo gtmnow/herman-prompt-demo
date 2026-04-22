@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.session import get_session
-from app.models.conversation import Conversation, ConversationTurn
+from app.models.conversation import Conversation, ConversationTurn, GuideMeSession
 from app.schemas.chat import (
     ConversationDetailResponse,
     ConversationDeleteAllResponse,
@@ -180,6 +180,12 @@ class ConversationService:
             if conversation is None or conversation.user_id_hash != user_id_hash:
                 raise ValueError("Conversation not found.")
 
+            session.execute(
+                delete(GuideMeSession).where(
+                    GuideMeSession.conversation_id == conversation_id,
+                    GuideMeSession.user_id_hash == user_id_hash,
+                )
+            )
             session.delete(conversation)
             session.commit()
             return ConversationDeleteResponse(status="deleted")
@@ -192,6 +198,7 @@ class ConversationService:
             result = session.execute(select(Conversation).where(Conversation.user_id_hash == user_id_hash))
             conversations = result.scalars().all()
             deleted_count = len(conversations)
+            session.execute(delete(GuideMeSession).where(GuideMeSession.user_id_hash == user_id_hash))
             for conversation in conversations:
                 session.delete(conversation)
             session.commit()
