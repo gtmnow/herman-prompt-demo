@@ -517,23 +517,22 @@ def _compose_final_prompt(answers: dict[str, str]) -> str:
     refinements = answers.get("refinements", "").strip()
     who = answers.get("who", "").strip()
     task = answers.get("task", "").strip()
-    context = _merge_sections(answers.get("context", ""), refinements)
+    context = answers.get("context", "").strip()
     output = answers.get("output", "").strip()
     instructions = answers.get("instructions", "").strip()
+    additional_information = _merge_sections(instructions, refinements)
 
     sections: list[str] = []
     if who:
-        sections.append(f"You are {who}.")
+        sections.append(f"Who: {who}")
     if task:
-        sections.append(f"Your task is to {task}.")
-    if instructions:
-        sections.append(f"Instructions:\n{instructions}")
+        sections.append(f"Task: {task}")
     if context:
-        sections.append(f"Context:\n{context}")
+        sections.append(f"Context: {context}")
     if output:
-        sections.append(f"Output requirements:\n{output}")
-    if refinements:
-        sections.append(f"Additional preferences:\n{refinements}")
+        sections.append(f"Output: {output}")
+    if additional_information:
+        sections.append(f"Additional Information: {additional_information}")
 
     return "\n\n".join(section.strip() for section in sections if section.strip()).strip()
 
