@@ -854,6 +854,11 @@ export function App() {
             }
             onSubmit={handleSubmit}
           />
+          <div className="app-disclaimer">
+            HermanScience is not responsible for the accuracy or confidentiality of information provided by the AI.
+            This platform is not designed to offer professional, legal, medical or other advice. Please consult
+            with the appropriate experts for this type of advice.
+          </div>
         </div>
       </div>
       {feedbackDraft ? (
