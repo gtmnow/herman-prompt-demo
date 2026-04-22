@@ -608,6 +608,13 @@ input {
   letter-spacing: 0.08em;
 }
 
+.message-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .coaching-indicator-row {
   display: flex;
   flex-wrap: wrap;
@@ -719,6 +726,20 @@ input {
   margin-top: 12px;
   color: var(--text-muted);
   font-size: 0.92rem;
+}
+
+.guide-me-inline-button {
+  border: 1px solid color-mix(in srgb, #d3a34a 40%, var(--border));
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--panel-soft) 84%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.guide-me-inline-button:hover {
+  border-color: color-mix(in srgb, #d3a34a 64%, var(--border));
 }
 
 .assistant-image-grid {
@@ -1077,6 +1098,11 @@ input {
 
   .guide-me-panel-header,
   .guide-me-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .message-header {
     flex-direction: column;
     align-items: stretch;
   }

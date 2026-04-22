@@ -1063,7 +1063,13 @@ export function App() {
         />
         <div className="chat-main">
           {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
-          <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
+          <Transcript
+            turns={turns}
+            showDetails={showDetails}
+            loading={loading}
+            onOpenFeedback={openFeedback}
+            onOpenGuideMe={openGuideMe}
+          />
           {error ? <div className="error-banner">{error}</div> : null}
           <Composer
             attachments={attachments}

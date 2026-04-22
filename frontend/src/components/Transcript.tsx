@@ -22,10 +22,11 @@ type TranscriptProps = {
   turns: TranscriptTurn[];
   showDetails: boolean;
   loading: boolean;
+  onOpenGuideMe: () => void;
   onOpenFeedback: (turnId: string, feedbackType: "up" | "down") => void;
 };
 
-export function Transcript({ turns, showDetails, loading, onOpenFeedback }: TranscriptProps) {
+export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpenGuideMe }: TranscriptProps) {
   const containerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -66,9 +67,14 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
 
           {turn.assistantKind === "assistant" && turn.coachingText?.trim() ? (
             <article className="message-row message-coaching">
-              <div className="message-label">Coaching</div>
+              <div className="message-header">
+                <div className="message-label">Coaching</div>
+                <button className="guide-me-inline-button" type="button" onClick={onOpenGuideMe}>
+                  Guide Me
+                </button>
+              </div>
               <CoachingIndicators requirements={turn.coachingRequirements} />
-              <div className="message-body">{turn.coachingText}</div>
+              <div className="message-body">{formatCoachingText(turn.coachingText)}</div>
             </article>
           ) : null}
 
@@ -81,17 +87,26 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
                   : "message-assistant"
             }`}
           >
-            <div className="message-label">
-              {turn.assistantKind === "coaching"
-                ? "Coaching"
-                : turn.assistantKind === "blocked"
-                  ? "Safety Check"
-                  : "Assistant"}
+            <div className="message-header">
+              <div className="message-label">
+                {turn.assistantKind === "coaching"
+                  ? "Coaching"
+                  : turn.assistantKind === "blocked"
+                    ? "Safety Check"
+                    : "Assistant"}
+              </div>
+              {turn.assistantKind === "coaching" ? (
+                <button className="guide-me-inline-button" type="button" onClick={onOpenGuideMe}>
+                  Guide Me
+                </button>
+              ) : null}
             </div>
             {turn.assistantKind === "coaching" ? (
               <CoachingIndicators requirements={turn.coachingRequirements} />
             ) : null}
-            <div className="message-body">{turn.assistantText}</div>
+            <div className="message-body">
+              {turn.assistantKind === "coaching" ? formatCoachingText(turn.assistantText) : turn.assistantText}
+            </div>
             {turn.assistantImages.length > 0 ? (
               <div className="assistant-image-grid">
                 {turn.assistantImages.map((image, index) => (
@@ -173,6 +188,16 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback }: Tran
       ) : null}
     </section>
   );
+}
+
+function formatCoachingText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 'Click the Guide Me button to use guided prompt construction wizard.';
+  }
+
+  const suffix = "Click the Guide Me button to use guided prompt construction wizard.";
+  return trimmed.includes(suffix) ? trimmed : `${trimmed} ${suffix}`;
 }
 
 function CoachingIndicators({
