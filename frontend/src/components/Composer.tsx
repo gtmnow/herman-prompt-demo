@@ -10,11 +10,13 @@ export type UploadedAttachment = {
 type ComposerProps = {
   disabled: boolean;
   dragActive: boolean;
+  guideMeActive?: boolean;
   attachments: UploadedAttachment[];
   uploadError: string | null;
   uploading: boolean;
   value: string;
   onFileSelect: (files: FileList | null) => void;
+  onGuideMe: () => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -24,11 +26,13 @@ type ComposerProps = {
 export function Composer({
   disabled,
   dragActive,
+  guideMeActive = false,
   attachments,
   uploadError,
   uploading,
   value,
   onFileSelect,
+  onGuideMe,
   onRemoveAttachment,
   onChange,
   onSubmit,
@@ -109,6 +113,15 @@ export function Composer({
       {uploadError ? <div className="composer-note composer-note-error">{uploadError}</div> : null}
       {uploading ? <div className="composer-note">Uploading attachment...</div> : null}
       <div className="composer-actions">
+        <button
+          aria-label="Open Guide Me"
+          className={`guide-me-composer-button ${guideMeActive ? "is-active" : ""}`}
+          disabled={disabled || uploading}
+          type="button"
+          onClick={onGuideMe}
+        >
+          Guide Me
+        </button>
         <label className="attach-button" htmlFor="composer-file-input">
           <svg aria-hidden="true" className="attach-icon" viewBox="0 0 24 24">
             <path

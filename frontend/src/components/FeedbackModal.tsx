@@ -14,6 +14,7 @@ type FeedbackModalProps = {
   selectedDimensions: string[];
   submitting: boolean;
   error: string | null;
+  onOpenGuideMe: () => void;
   onClose: () => void;
   onCommentsChange: (value: string) => void;
   onToggleDimension: (value: string) => void;
@@ -26,6 +27,7 @@ export function FeedbackModal({
   selectedDimensions,
   submitting,
   error,
+  onOpenGuideMe,
   onClose,
   onCommentsChange,
   onToggleDimension,
@@ -77,6 +79,9 @@ export function FeedbackModal({
         {error ? <div className="error-banner">{error}</div> : null}
 
         <div className="feedback-modal-actions">
+          <button className="feedback-button" disabled={submitting} type="button" onClick={onOpenGuideMe}>
+            Guide Me Instead
+          </button>
           <button className="feedback-button" type="button" onClick={onClose}>
             Cancel
           </button>

@@ -51,124 +51,107 @@ export function GuideMePanel({
   onSubmit,
   onUsePrompt,
 }: GuideMePanelProps) {
-  const buttonLabel =
-    session && session.status === "active" ? "Resume Guide Me" : session?.readyToInsert ? "Review Prompt" : "Guide Me";
+  if (!open) {
+    return null;
+  }
 
   return (
-    <>
-      <section className="guide-me-card">
-        <div>
-          <div className="guide-me-eyebrow">Coaching</div>
-          <div className="guide-me-title-row">
-            <h2 className="guide-me-title">Shape a stronger prompt with guided coaching.</h2>
-            <button className="guide-me-launch-button" type="button" onClick={onLaunch}>
-              {open ? "Hide Guide Me" : buttonLabel}
-            </button>
+    <div className="modal-backdrop" role="presentation">
+      <section aria-modal="true" className="guide-me-panel" role="dialog">
+        <div className="guide-me-panel-header">
+          <div>
+            <div className="guide-me-panel-label">Guide Me</div>
+            <h3 className="guide-me-panel-title">
+              {session?.questionTitle ?? "Start guided prompting"}
+            </h3>
           </div>
-          <p className="guide-me-summary">
-            {session
-              ? `Personalized for ${session.personalization.firstName} using ${session.personalization.profileLabel.toLowerCase()} and recent usage patterns.`
-              : "Guide Me asks a short series of questions, builds the prompt for you, and returns it to the main composer."}
-          </p>
+          <button className="modal-close" type="button" onClick={onClose}>
+            Close
+          </button>
         </div>
-        <GuideIndicators requirements={session?.requirements} />
-      </section>
 
-      {open ? (
-        <section className="guide-me-panel">
-          <div className="guide-me-panel-header">
-            <div>
-              <div className="guide-me-panel-label">Guide Me</div>
-              <h3 className="guide-me-panel-title">
-                {session?.questionTitle ?? "Start guided prompting"}
-              </h3>
+        {session ? (
+          <>
+            <GuideIndicators requirements={session.requirements} />
+
+            <div className="guide-me-meta">
+              <div className="guide-me-meta-card">
+                <span className="guide-me-meta-label">Typical usage</span>
+                <span>{session.personalization.typicalAiUsage}</span>
+              </div>
+              <div className="guide-me-meta-card">
+                <span className="guide-me-meta-label">Profile</span>
+                <span>{session.personalization.profileLabel}</span>
+              </div>
             </div>
-            <button className="modal-close" type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
 
-          {session ? (
-            <>
-              <div className="guide-me-meta">
-                <div className="guide-me-meta-card">
-                  <span className="guide-me-meta-label">Typical usage</span>
-                  <span>{session.personalization.typicalAiUsage}</span>
-                </div>
-                <div className="guide-me-meta-card">
-                  <span className="guide-me-meta-label">Profile</span>
-                  <span>{session.personalization.profileLabel}</span>
+            {session.personalization.recentExamples.length > 0 ? (
+              <div className="guide-me-examples">
+                <span className="guide-me-meta-label">Recent patterns</span>
+                <div className="guide-me-example-list">
+                  {session.personalization.recentExamples.map((example, index) => (
+                    <div key={`${example}-${index}`} className="guide-me-example-chip">
+                      {example}
+                    </div>
+                  ))}
                 </div>
               </div>
+            ) : null}
 
-              {session.personalization.recentExamples.length > 0 ? (
-                <div className="guide-me-examples">
-                  <span className="guide-me-meta-label">Recent patterns</span>
-                  <div className="guide-me-example-list">
-                    {session.personalization.recentExamples.map((example, index) => (
-                      <div key={`${example}-${index}`} className="guide-me-example-chip">
-                        {example}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+            {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
+            {session.guidanceText ? <div className="guide-me-guidance">{session.guidanceText}</div> : null}
 
-              {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
-              {session.guidanceText ? <div className="guide-me-guidance">{session.guidanceText}</div> : null}
+            {session.readyToInsert && session.finalPrompt ? (
+              <div className="guide-me-final">
+                <div className="guide-me-meta-label">Formatted prompt</div>
+                <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
+              </div>
+            ) : (
+              <label className="guide-me-answer-field">
+                <span className="guide-me-meta-label">Your answer</span>
+                <textarea
+                  className="guide-me-answer-input"
+                  disabled={busy}
+                  rows={5}
+                  value={answer}
+                  onChange={(event) => onAnswerChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault();
+                      onSubmit();
+                    }
+                  }}
+                />
+              </label>
+            )}
 
-              {session.readyToInsert && session.finalPrompt ? (
-                <div className="guide-me-final">
-                  <div className="guide-me-meta-label">Formatted prompt</div>
-                  <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
-                </div>
-              ) : (
-                <label className="guide-me-answer-field">
-                  <span className="guide-me-meta-label">Your answer</span>
-                  <textarea
-                    className="guide-me-answer-input"
-                    disabled={busy}
-                    rows={5}
-                    value={answer}
-                    onChange={(event) => onAnswerChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                        event.preventDefault();
-                        onSubmit();
-                      }
-                    }}
-                  />
-                </label>
-              )}
+            {error ? <div className="error-banner">{error}</div> : null}
 
-              {error ? <div className="error-banner">{error}</div> : null}
-
-              <div className="guide-me-actions">
-                {session.readyToInsert ? (
-                  <button className="send-button" type="button" onClick={onUsePrompt}>
-                    Use Prompt
-                  </button>
-                ) : (
-                  <button className="send-button" disabled={busy || !answer.trim()} type="button" onClick={onSubmit}>
-                    Continue
-                  </button>
-                )}
-                <button className="feedback-button" disabled={busy} type="button" onClick={onCancel}>
-                  Cancel
+            <div className="guide-me-actions">
+              {session.readyToInsert ? (
+                <button className="send-button" type="button" onClick={onUsePrompt}>
+                  Use Prompt
                 </button>
-              </div>
-            </>
-          ) : (
-            <div className="guide-me-empty">
-              <p>Start a guided session to build a structured prompt with personalized coaching.</p>
-              <button className="send-button" disabled={busy} type="button" onClick={onLaunch}>
-                Launch Guide Me
+              ) : (
+                <button className="send-button" disabled={busy || !answer.trim()} type="button" onClick={onSubmit}>
+                  Continue
+                </button>
+              )}
+              <button className="feedback-button" disabled={busy} type="button" onClick={onCancel}>
+                Cancel
               </button>
             </div>
-          )}
-        </section>
-      ) : null}
-    </>
+          </>
+        ) : (
+          <div className="guide-me-empty">
+            <p>Start a guided session to build a structured prompt with personalized coaching.</p>
+            <button className="send-button" disabled={busy} type="button" onClick={onLaunch}>
+              Launch Guide Me
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

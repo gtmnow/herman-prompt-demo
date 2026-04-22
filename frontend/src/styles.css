@@ -419,20 +419,11 @@ input {
   background: color-mix(in srgb, #9a6700 30%, transparent);
 }
 
-.guide-me-card,
 .guide-me-panel {
   border: 1px solid var(--border);
   border-radius: 22px;
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   box-shadow: var(--shadow);
-}
-
-.guide-me-card {
-  display: grid;
-  gap: 16px;
-  padding: 18px 20px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--coaching) 90%, var(--panel)) 0%, color-mix(in srgb, var(--panel) 98%, transparent) 100%);
 }
 
 .guide-me-eyebrow,
@@ -444,38 +435,12 @@ input {
   text-transform: uppercase;
 }
 
-.guide-me-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.guide-me-title {
-  margin: 6px 0 8px;
-  font-size: 1.3rem;
-  line-height: 1.2;
-}
-
-.guide-me-summary {
-  margin: 0;
-  max-width: 78ch;
-  color: color-mix(in srgb, var(--text) 92%, transparent);
-}
-
-.guide-me-launch-button {
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 999px;
-  padding: 11px 18px;
-  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
-  color: var(--text);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
 .guide-me-panel {
   display: grid;
   gap: 16px;
+  width: min(760px, 100%);
+  max-height: min(90vh, 760px);
+  overflow: auto;
   padding: 20px;
 }
 
@@ -888,6 +853,30 @@ input {
   gap: 10px;
 }
 
+.guide-me-composer-button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--coaching) 78%, var(--panel-soft));
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.guide-me-composer-button.is-active {
+  border-color: color-mix(in srgb, #d3a34a 48%, var(--border));
+  background: color-mix(in srgb, var(--coaching) 92%, var(--panel));
+}
+
+.guide-me-composer-button:hover {
+  border-color: color-mix(in srgb, #d3a34a 48%, var(--border));
+}
+
+.guide-me-composer-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .attach-button {
   display: inline-flex;
   align-items: center;
@@ -1086,7 +1075,6 @@ input {
     padding: 14px;
   }
 
-  .guide-me-title-row,
   .guide-me-panel-header,
   .guide-me-actions {
     flex-direction: column;

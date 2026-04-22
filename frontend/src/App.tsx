@@ -312,6 +312,26 @@ export function App() {
     }
   }
 
+  function openGuideMe() {
+    if (feedbackDraft) {
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === feedbackDraft.turnId && turn.feedbackStatus === "submitting"
+            ? { ...turn, feedbackStatus: "idle" }
+            : turn,
+        ),
+      );
+      setFeedbackDraft(null);
+    }
+
+    if (guideMeSession && guideMeSession.status !== "cancelled") {
+      setGuideMeOpen(true);
+      return;
+    }
+
+    void startGuideMe();
+  }
+
   async function submitGuideMeAnswer() {
     if (!session || !guideMeSession || !guideMeAnswer.trim() || guideMeBusy) {
       return;
@@ -1043,31 +1063,20 @@ export function App() {
         />
         <div className="chat-main">
           {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
-          <GuideMePanel
-            answer={guideMeAnswer}
-            busy={guideMeBusy}
-            error={guideMeError}
-            open={guideMeOpen}
-            session={guideMeSession}
-            onAnswerChange={setGuideMeAnswer}
-            onCancel={cancelGuideMe}
-            onClose={() => setGuideMeOpen(false)}
-            onLaunch={startGuideMe}
-            onSubmit={submitGuideMeAnswer}
-            onUsePrompt={useGuideMePrompt}
-          />
           <Transcript turns={turns} showDetails={showDetails} loading={loading} onOpenFeedback={openFeedback} />
           {error ? <div className="error-banner">{error}</div> : null}
           <Composer
             attachments={attachments}
             disabled={loading}
             dragActive={dragActive}
+            guideMeActive={guideMeOpen}
             uploadError={uploadError}
             uploading={uploading}
             value={draft}
             onChange={setDraft}
             onDragStateChange={setDragActive}
             onFileSelect={uploadFiles}
+            onGuideMe={openGuideMe}
             onRemoveAttachment={(attachmentId) =>
               setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId))
             }
@@ -1085,6 +1094,7 @@ export function App() {
           comments={feedbackDraft.comments}
           error={feedbackDraft.error}
           feedbackType={feedbackDraft.feedbackType}
+          onOpenGuideMe={openGuideMe}
           selectedDimensions={feedbackDraft.selectedDimensions}
           submitting={feedbackDraft.submitting}
           onClose={() => {
@@ -1104,6 +1114,19 @@ export function App() {
           onToggleDimension={toggleFeedbackDimension}
         />
       ) : null}
+      <GuideMePanel
+        answer={guideMeAnswer}
+        busy={guideMeBusy}
+        error={guideMeError}
+        open={guideMeOpen}
+        session={guideMeSession}
+        onAnswerChange={setGuideMeAnswer}
+        onCancel={cancelGuideMe}
+        onClose={() => setGuideMeOpen(false)}
+        onLaunch={startGuideMe}
+        onSubmit={submitGuideMeAnswer}
+        onUsePrompt={useGuideMePrompt}
+      />
     </main>
   );
 }
