@@ -331,10 +331,11 @@ def _question_for_session(
         )
     if current_step == "refine":
         numbered = "\n".join(f"{index + 1}. {question}" for index, question in enumerate(follow_up_questions))
-        question_text = "A few quick refinements:\n"
-        if guidance_text.strip():
-            question_text += f"{guidance_text.strip()}\n\n"
-        question_text += numbered
+        question_text = (
+            f"{personalization.first_name}, I have several suggestions that will further improve your prompt. "
+            "Which of these would you like to use? Reply with the numbers you want, or describe your preference.\n\n"
+            f"{numbered}"
+        )
         return ("Refine Prompt", question_text.strip())
     if current_step == "complete":
         return ("Prompt Ready", "Your guided prompt is ready. Review it and send it back to the main composer when you’re ready.")

@@ -193,10 +193,10 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpen
 function formatCoachingText(text: string) {
   const trimmed = text.trim();
   if (!trimmed) {
-    return 'Click the Guide Me button to use guided prompt construction wizard.';
+    return "Click the Guide Me button to use the prompt construction wizard.";
   }
 
-  const suffix = "Click the Guide Me button to use guided prompt construction wizard.";
+  const suffix = "Click the Guide Me button to use the prompt construction wizard.";
   return trimmed.includes(suffix) ? trimmed : `${trimmed} ${suffix}`;
 }
 
