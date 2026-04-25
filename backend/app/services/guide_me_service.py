@@ -197,7 +197,15 @@ class GuideMeService:
                 refreshed_requirements = _extract_transformer_requirements(transformed=None, score=score)
                 if refreshed_requirements:
                     answers = dict(guide_session.answers or {})
-                    answers["_transformer_requirements"] = refreshed_requirements
+                    existing_requirements = (
+                        answers.get("_transformer_requirements")
+                        if isinstance(answers.get("_transformer_requirements"), dict)
+                        else {}
+                    )
+                    answers["_transformer_requirements"] = _merge_transformer_requirements(
+                        existing_requirements if isinstance(existing_requirements, dict) else {},
+                        refreshed_requirements,
+                    )
                     guide_session.answers = answers
                     guide_session.updated_at = datetime.utcnow()
                     session.commit()
@@ -257,6 +265,9 @@ class GuideMeService:
             follow_up_questions=guide_session.follow_up_questions or [],
             guidance_text=guide_session.guidance_text or "",
         )
+        resolved_final_prompt = (guide_session.final_prompt or "").strip()
+        if not resolved_final_prompt and guide_session.current_step == "complete":
+            resolved_final_prompt = _compose_final_prompt(guide_session.answers or {})
         return GuideMeSessionPayload(
             session_id=guide_session.id,
             conversation_id=guide_session.conversation_id,
@@ -273,8 +284,8 @@ class GuideMeService:
             personalization=personalization,
             guidance_text=guide_session.guidance_text or None,
             follow_up_questions=guide_session.follow_up_questions or [],
-            final_prompt=guide_session.final_prompt or None,
-            ready_to_insert=guide_session.status == "complete" and bool((guide_session.final_prompt or "").strip()),
+            final_prompt=resolved_final_prompt or None,
+            ready_to_insert=guide_session.current_step == "complete" and bool(resolved_final_prompt),
         )
 
     def _get_active_session(self, *, session, conversation_id: str, user_id_hash: str) -> GuideMeSession | None:
@@ -442,7 +453,10 @@ class GuideMeService:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
         if validation["requirements"] is not None:
             answers["_transformer_requirements"] = validation["requirements"]
-        if validation["passes"]:
+        if validation["passes"] or (
+            validation["target_field"] is None
+            and _requirements_indicate_completion(validation["requirements"])
+        ):
             guide_session.current_step = "complete"
             guide_session.status = "complete"
             guide_session.final_prompt = final_prompt
@@ -952,14 +966,54 @@ def _extract_transformer_requirements(*, transformed: dict | None, score: dict |
     for key in ("who", "task", "context", "output"):
         base = transformed_requirements.get(key) if isinstance(transformed_requirements, dict) else None
         override = score_requirements.get(key) if isinstance(score_requirements, dict) else None
-        requirement: dict[str, object] = {}
-        if isinstance(base, dict):
-            requirement.update(base)
-        if isinstance(override, dict):
-            requirement.update(override)
+        requirement = _merge_transformer_requirement(
+            base if isinstance(base, dict) else {},
+            override if isinstance(override, dict) else {},
+        )
         if requirement:
             merged[key] = requirement
     return merged
+
+
+def _merge_transformer_requirements(base: dict[str, dict], override: dict[str, dict]) -> dict[str, dict]:
+    merged: dict[str, dict] = {}
+    for key in ("who", "task", "context", "output"):
+        base_requirement = base.get(key) if isinstance(base.get(key), dict) else {}
+        override_requirement = override.get(key) if isinstance(override.get(key), dict) else {}
+        requirement = _merge_transformer_requirement(
+            base_requirement if isinstance(base_requirement, dict) else {},
+            override_requirement if isinstance(override_requirement, dict) else {},
+        )
+        if requirement:
+            merged[key] = requirement
+    return merged
+
+
+def _merge_transformer_requirement(base: dict[str, object], override: dict[str, object]) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    keys = ("value", "status", "heuristic_score", "llm_score", "max_score", "reason", "improvement_hint")
+    for key in keys:
+        base_value = base.get(key)
+        override_value = override.get(key)
+        if _has_transformer_value(override_value):
+            merged[key] = override_value
+        elif _has_transformer_value(base_value):
+            merged[key] = base_value
+    for extra_key, extra_value in base.items():
+        if extra_key not in merged and _has_transformer_value(extra_value):
+            merged[extra_key] = extra_value
+    for extra_key, extra_value in override.items():
+        if extra_key not in merged and _has_transformer_value(extra_value):
+            merged[extra_key] = extra_value
+    return merged
+
+
+def _has_transformer_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
 
 
 def _first_failing_requirement(transformer_conversation: dict | None) -> str | None:
@@ -1094,6 +1148,28 @@ def _select_target_field_for_refinement(*, requirements: dict[str, dict] | None)
         )
         return weakest[0]
     return None
+
+
+def _requirements_indicate_completion(requirements: dict[str, dict] | None) -> bool:
+    normalized = requirements if isinstance(requirements, dict) else {}
+    if not normalized:
+        return False
+
+    for key in ("who", "task", "context", "output"):
+        requirement = normalized.get(key)
+        if not isinstance(requirement, dict):
+            return False
+        status = str(requirement.get("status") or "").strip()
+        if status != "present":
+            return False
+        heuristic_score = _safe_int(requirement.get("heuristic_score"))
+        llm_score = _safe_int(requirement.get("llm_score"))
+        max_score = _safe_int(requirement.get("max_score"))
+        if heuristic_score is not None and max_score is not None and heuristic_score < max_score:
+            return False
+        if llm_score is not None and max_score is not None and llm_score < max_score:
+            return False
+    return True
 
 
 def _task_specificity_score(value: str) -> int:
