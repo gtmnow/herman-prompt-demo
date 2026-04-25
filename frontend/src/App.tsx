@@ -12,7 +12,18 @@ const DEMO_RESPONSE =
 
 type TransformerConversation = {
   conversation_id: string;
-  requirements: Record<string, { value?: string | null; status: string }>;
+  requirements: Record<
+    string,
+    {
+      value?: string | null;
+      status: string;
+      heuristic_score?: number | null;
+      llm_score?: number | null;
+      max_score?: number | null;
+      reason?: string | null;
+      improvement_hint?: string | null;
+    }
+  >;
   enforcement: {
     level: string;
     status: string;
@@ -37,9 +48,11 @@ type CoachingRequirementIndicator = {
 };
 
 type GuideMeRequirementApiIndicator = CoachingRequirementIndicator & {
-  deterministic_score?: number | null;
-  ai_score?: number | null;
-  max_score?: number;
+  heuristic_score?: number | null;
+  llm_score?: number | null;
+  max_score?: number | null;
+  reason?: string | null;
+  improvement_hint?: string | null;
 };
 
 type GuideMeApiSession = {
@@ -1232,9 +1245,11 @@ function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
       {
         label: requirement.label,
         state: requirement.state,
-        deterministicScore: requirement.deterministic_score ?? null,
-        aiScore: requirement.ai_score ?? null,
-        maxScore: requirement.max_score ?? 25,
+        heuristicScore: requirement.heuristic_score ?? null,
+        llmScore: requirement.llm_score ?? null,
+        maxScore: requirement.max_score ?? null,
+        reason: requirement.reason ?? null,
+        improvementHint: requirement.improvement_hint ?? null,
       },
     ]),
   );

@@ -189,6 +189,19 @@ class GuideMeService:
                 conversation_id=conversation_id,
                 user_id_hash=user.user_id_hash,
             )
+            if guide_session is not None:
+                score = await self.transformer_client.fetch_conversation_score(
+                    conversation_id=conversation_id,
+                    user_id=user.user_id_hash,
+                )
+                refreshed_requirements = _extract_transformer_requirements(transformed=None, score=score)
+                if refreshed_requirements:
+                    answers = dict(guide_session.answers or {})
+                    answers["_transformer_requirements"] = refreshed_requirements
+                    guide_session.answers = answers
+                    guide_session.updated_at = datetime.utcnow()
+                    session.commit()
+                    session.refresh(guide_session)
             return GuideMeSessionResponse(
                 session=self._serialize_session(guide_session) if guide_session is not None else None
             )
@@ -390,11 +403,9 @@ class GuideMeService:
                 conversation_id=conversation_id,
                 user_id=user.user_id_hash,
             )
-            target_field = _select_target_field_for_refinement(
-                answers=answers,
-                score=score,
-                failing_field=failing_field,
-            )
+            requirements = _extract_transformer_requirements(transformed=transformed, score=score)
+            answers["_transformer_requirements"] = requirements
+            target_field = _select_target_field_for_refinement(requirements=requirements)
             if failing_field:
                 answers["_target_field"] = failing_field
                 current_step = _field_to_step(failing_field)
@@ -429,6 +440,8 @@ class GuideMeService:
 
     async def _apply_validation_result(self, *, guide_session: GuideMeSession, answers: dict[str, str], final_prompt: str) -> None:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
+        if validation["requirements"] is not None:
+            answers["_transformer_requirements"] = validation["requirements"]
         if validation["passes"]:
             guide_session.current_step = "complete"
             guide_session.status = "complete"
@@ -467,6 +480,7 @@ class GuideMeService:
                 "passes": True,
                 "failing_field": None,
                 "target_field": None,
+                "requirements": None,
                 "guidance_text": "",
                 "refinement_options": [],
             }
@@ -476,23 +490,21 @@ class GuideMeService:
             conversation_id=guide_session.conversation_id,
             user_id=guide_session.user_id_hash,
         )
-        target_field = _select_target_field_for_refinement(
-            answers=answers,
-            score=score,
-            failing_field=failing_field,
-        )
+        requirements = _extract_transformer_requirements(transformed=transformed, score=score)
+        target_field = _select_target_field_for_refinement(requirements=requirements)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         return {
             "passes": passes,
             "failing_field": failing_field,
             "target_field": target_field,
+            "requirements": requirements,
             "guidance_text": _build_refinement_guidance(
                 field=target_field,
-                answers=answers,
+                requirements=requirements,
                 score=score,
             ),
-            "refinement_options": _derive_refinement_options(field=target_field, answers=answers),
+            "refinement_options": _derive_refinement_options(field=target_field, answers=answers, requirements=requirements),
         }
 
 
@@ -557,24 +569,22 @@ def _question_for_session(
 
 
 def _build_requirement_indicators(answers: dict[str, str]) -> dict[str, GuideMeRequirementIndicator]:
-    mapping = {
-        "who": ("Who", answers.get("who", "")),
-        "task": ("Task", answers.get("task", "")),
-        "context": ("Context", answers.get("context", "")),
-        "output": ("Output", answers.get("output", "")),
-    }
+    stored_requirements = answers.get("_transformer_requirements")
     indicators: dict[str, GuideMeRequirementIndicator] = {}
-    for key, (label, value) in mapping.items():
-        if value.strip():
-            state = "met" if len(value.strip()) > 24 else "partial"
-        else:
-            state = "missing"
+    requirements = stored_requirements if isinstance(stored_requirements, dict) else {}
+    for key, label in {"who": "Who", "task": "Task", "context": "Context", "output": "Output"}.items():
+        requirement = requirements.get(key) if isinstance(requirements, dict) else None
+        requirement_dict = requirement if isinstance(requirement, dict) else {}
+        status = str(requirement_dict.get("status") or "missing")
+        state = _guide_indicator_state(status)
         indicators[key] = GuideMeRequirementIndicator(
             label=label,
             state=state,
-            deterministic_score=_field_score_out_of_25(key, answers),
-            ai_score=None,
-            max_score=25,
+            heuristic_score=_safe_int(requirement_dict.get("heuristic_score")),
+            llm_score=_safe_int(requirement_dict.get("llm_score")),
+            max_score=_safe_int(requirement_dict.get("max_score")),
+            reason=str(requirement_dict.get("reason") or "").strip() or None,
+            improvement_hint=str(requirement_dict.get("improvement_hint") or "").strip() or None,
         )
     return indicators
 
@@ -814,6 +824,16 @@ def _step_to_field(step: str) -> str | None:
 def _question_prefix(*, field: str, answers: dict[str, str]) -> str:
     if answers.get("_target_field") != field:
         return ""
+    requirements = answers.get("_transformer_requirements")
+    if isinstance(requirements, dict):
+        requirement = requirements.get(field)
+        if isinstance(requirement, dict):
+            improvement_hint = str(requirement.get("improvement_hint") or "").strip()
+            reason = str(requirement.get("reason") or "").strip()
+            if improvement_hint:
+                return f"{improvement_hint} "
+            if reason:
+                return f"{reason} "
     prefixes = {
         "task": "Your current prompt still needs a clearer task. ",
         "who": "Your current prompt still needs a stronger role definition. ",
@@ -914,6 +934,34 @@ def _extract_labeled_answers(source_prompt: str) -> dict[str, str]:
     return answer_map
 
 
+def _extract_transformer_requirements(*, transformed: dict | None, score: dict | None) -> dict[str, dict]:
+    transformed_requirements = (
+        ((transformed or {}).get("conversation") or {}).get("requirements")
+        if isinstance((transformed or {}).get("conversation"), dict)
+        else None
+    )
+    score_requirements = (
+        ((score or {}).get("conversation") or {}).get("requirements")
+        if isinstance((score or {}).get("conversation"), dict)
+        else None
+    )
+    if not isinstance(score_requirements, dict):
+        score_requirements = score.get("requirements") if isinstance(score, dict) else None
+
+    merged: dict[str, dict] = {}
+    for key in ("who", "task", "context", "output"):
+        base = transformed_requirements.get(key) if isinstance(transformed_requirements, dict) else None
+        override = score_requirements.get(key) if isinstance(score_requirements, dict) else None
+        requirement: dict[str, object] = {}
+        if isinstance(base, dict):
+            requirement.update(base)
+        if isinstance(override, dict):
+            requirement.update(override)
+        if requirement:
+            merged[key] = requirement
+    return merged
+
+
 def _first_failing_requirement(transformer_conversation: dict | None) -> str | None:
     requirements = (transformer_conversation or {}).get("requirements")
     if not isinstance(requirements, dict):
@@ -923,6 +971,26 @@ def _first_failing_requirement(transformer_conversation: dict | None) -> str | N
         status = requirement.get("status") if isinstance(requirement, dict) else None
         if status in {"missing", "derived"}:
             return key
+    return None
+
+
+def _guide_indicator_state(status: str) -> str:
+    if status == "present":
+        return "met"
+    if status == "derived":
+        return "partial"
+    return "missing"
+
+
+def _safe_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
     return None
 
 
@@ -975,81 +1043,57 @@ def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
     return "\n".join(selected) if selected else normalized
 
 
-def _select_target_field_for_refinement(
-    *,
-    answers: dict[str, str],
-    score: dict | None,
-    failing_field: str | None = None,
-) -> str | None:
-    field_scores = [
-        ("task", _field_score_out_of_25("task", answers)),
-        ("who", _field_score_out_of_25("who", answers)),
-        ("context", _field_score_out_of_25("context", answers)),
-        ("output", _field_score_out_of_25("output", answers)),
+def _select_target_field_for_refinement(*, requirements: dict[str, dict] | None) -> str | None:
+    normalized = requirements if isinstance(requirements, dict) else {}
+    if not normalized:
+        return None
+
+    ordered = ("who", "task", "context", "output")
+
+    failing = [
+        key
+        for key in ordered
+        if str((normalized.get(key) or {}).get("status") or "").strip() in {"missing", "derived"}
     ]
-    weakest_field, weakest_score = min(field_scores, key=lambda item: item[1])
-    if weakest_score < 25:
-        return weakest_field
-    if failing_field:
-        return failing_field
-    if not _is_perfect_score(score):
-        return weakest_field
-    return None
-
-
-def _field_strength_score(field: str, answers: dict[str, str]) -> int:
-    value = (answers.get(field) or "").strip()
-    if not value:
-        return 0
-
-    score = 1
-    word_count = len(value.split())
-    if word_count >= 5:
-        score += 1
-    if word_count >= 10:
-        score += 1
-    if field == "output" and any(token in value.lower() for token in ("bullet", "summary", "table", "paragraph", "heading", "format")):
-        score += 1
-    if field == "context" and any(token in value.lower() for token in ("audience", "for ", "because", "book report", "briefing", "presentation")):
-        score += 1
-    if field == "who" and any(token in value.lower() for token in ("you are", "act as", "advisor", "expert", "attorney", "historian")):
-        score += 1
-    if field == "task" and any(
-        token in value.lower()
-        for token in (
-            "explain",
-            "create",
-            "draft",
-            "analyze",
-            "compare",
-            "summarize",
-            "plan",
-            "action plan",
-            "reduce",
-            "increase",
-            "improve",
-            "recommend",
-            "identify",
-            "build",
-            "develop",
-            "optimize",
+    if failing:
+        return min(
+            failing,
+            key=lambda key: (
+                _safe_int((normalized.get(key) or {}).get("heuristic_score"))
+                if _safe_int((normalized.get(key) or {}).get("heuristic_score")) is not None
+                else 10**9,
+                _safe_int((normalized.get(key) or {}).get("llm_score"))
+                if _safe_int((normalized.get(key) or {}).get("llm_score")) is not None
+                else 10**9,
+            ),
         )
-    ):
-        score += 1
-    return score
 
-
-def _field_score_out_of_25(field: str, answers: dict[str, str]) -> int:
-    strength = _field_strength_score(field, answers)
-    if strength <= 0:
-        return 0
-    if strength == 1:
-        return 8
-    if strength == 2:
-        return 14
-    if strength == 3:
-        return 20
-    return 25
+    scored = [
+        (
+            key,
+            _safe_int((normalized.get(key) or {}).get("heuristic_score")),
+            _safe_int((normalized.get(key) or {}).get("llm_score")),
+            _safe_int((normalized.get(key) or {}).get("max_score")),
+        )
+        for key in ordered
+        if isinstance(normalized.get(key), dict)
+    ]
+    incomplete = [
+        item
+        for item in scored
+        if (item[1] is not None and item[3] is not None and item[1] < item[3])
+        or (item[2] is not None and item[3] is not None and item[2] < item[3])
+    ]
+    if incomplete:
+        weakest = min(
+            incomplete,
+            key=lambda item: (
+                item[1] if item[1] is not None else 10**9,
+                item[2] if item[2] is not None else 10**9,
+            ),
+        )
+        return weakest[0]
+    return None
 
 
 def _task_specificity_score(value: str) -> int:
@@ -1075,31 +1119,21 @@ def _task_specificity_score(value: str) -> int:
     return score
 
 
-def _build_refinement_guidance(*, field: str | None, answers: dict[str, str], score: dict | None) -> str:
-    if field == "who":
-        return (
-            "I have several suggestions that will improve the Who section of your prompt. "
-            "To improve your results, name the exact expert, perspective, or voice you want me to use."
-        )
-    if field == "task":
-        return (
-            "I have several suggestions that will improve the Task section of your prompt. "
-            "To improve your results, clearly state the job to be done and the outcome you want."
-        )
-    if field == "context":
-        return (
-            "I have several suggestions that will improve the Context section of your prompt. "
-            "To improve your results, add audience, situation, and any constraints that shape the answer."
-        )
-    if field == "output":
-        return (
-            "I have several suggestions that will improve the Output section of your prompt. "
-            "To improve your output results, ask for specific, actionable formatting and structure instead of unclear delivery instructions."
-        )
+def _build_refinement_guidance(*, field: str | None, requirements: dict[str, dict] | None, score: dict | None) -> str:
+    requirement = (requirements or {}).get(field or "")
+    if isinstance(requirement, dict):
+        reason = str(requirement.get("reason") or "").strip()
+        improvement_hint = str(requirement.get("improvement_hint") or "").strip()
+        if reason and improvement_hint:
+            return f"{reason} {improvement_hint}"
+        if improvement_hint:
+            return improvement_hint
+        if reason:
+            return reason
     return _build_score_guidance(score)
 
 
-def _derive_refinement_options(*, field: str | None, answers: dict[str, str]) -> list[str]:
+def _derive_refinement_options(*, field: str | None, answers: dict[str, str], requirements: dict[str, dict] | None) -> list[str]:
     if field == "who":
         return _who_refinement_options(answers)
     if field == "task":

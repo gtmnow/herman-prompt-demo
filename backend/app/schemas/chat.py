@@ -73,9 +73,11 @@ class GuideMeRespondRequest(BaseModel):
 class GuideMeRequirementIndicator(BaseModel):
     state: Literal["met", "partial", "missing"]
     label: str
-    deterministic_score: int | None = None
-    ai_score: int | None = None
-    max_score: int = 25
+    heuristic_score: int | None = None
+    llm_score: int | None = None
+    max_score: int | None = None
+    reason: str | None = None
+    improvement_hint: str | None = None
 
 
 class GuideMePersonalization(BaseModel):
@@ -124,6 +126,11 @@ class TransformerFinding(BaseModel):
 class TransformerConversationRequirement(BaseModel):
     value: str | None = None
     status: Literal["present", "derived", "missing", "user_provided"]
+    heuristic_score: int | None = None
+    llm_score: int | None = None
+    max_score: int | None = None
+    reason: str | None = None
+    improvement_hint: str | None = None
 
 
 class CoachingRequirementIndicator(BaseModel):
