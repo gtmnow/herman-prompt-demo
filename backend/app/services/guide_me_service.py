@@ -379,8 +379,9 @@ class GuideMeService:
         requirements: dict[str, dict] | None,
         score: dict[str, object] | None,
         final_prompt: str,
+        preferred_focus: str | None,
     ) -> dict[str, object]:
-        fallback_focus = _select_specificity_focus(
+        fallback_focus = preferred_focus or _select_specificity_focus(
             answers=answers,
             requirements=requirements,
             score=score,
@@ -402,12 +403,15 @@ class GuideMeService:
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
+                preferred_focus=fallback_focus,
             )
             response_text = await self.llm_client.generate_text(prompt=prompt)
             payload = _extract_json_object(response_text)
 
             focus_area_raw = str(payload.get("focus_area") or "").strip().lower()
             focus_area = focus_area_raw if focus_area_raw in {"who", "task", "context", "output", "overall"} else fallback_focus
+            if preferred_focus in {"who", "task", "context", "output"}:
+                focus_area = preferred_focus
 
             guidance = str(payload.get("guidance") or "").strip() or fallback_guidance
             options_raw = payload.get("options")
@@ -416,6 +420,9 @@ class GuideMeService:
                 for option in options_raw:
                     if isinstance(option, str) and option.strip():
                         options.append(option.strip())
+            if preferred_focus in {"who", "task", "context", "output"}:
+                required_prefix = f"{preferred_focus.capitalize()}:"
+                options = [option for option in options if option.startswith(required_prefix)]
             if not options:
                 options = fallback_options
 
@@ -627,6 +634,7 @@ class GuideMeService:
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
+                preferred_focus=target_field if isinstance(target_field, str) else None,
             )
             target_field = specificity_refinement.get("focus_field")
             refinement_options = list(specificity_refinement.get("refinement_options") or [])
@@ -985,12 +993,19 @@ def _build_specificity_refinement_prompt(
     requirements: dict[str, dict] | None,
     score: dict[str, object] | None,
     final_prompt: str,
+    preferred_focus: str | None,
 ) -> str:
     visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    focus_instruction = (
+        f"You must focus on the {preferred_focus} section because transformer scoring identifies it as the weakest area.\n"
+        if preferred_focus in {"who", "task", "context", "output"}
+        else ""
+    )
     return (
         "You are helping a prompt-construction wizard improve a prompt that is already structurally complete. "
         "The prompt has labeled Who, Task, Context, and Output sections, but the overall score is still below perfect. "
         "Your job is to identify the single best improvement focus and provide prompt-ready rewrites.\n"
+        f"{focus_instruction}"
         "Return strict JSON with exactly these keys:\n"
         "- focus_area: one of who, task, context, output, overall\n"
         "- guidance: a short plain-English sentence that tells the user what is still too weak or vague\n"
@@ -1000,6 +1015,7 @@ def _build_specificity_refinement_prompt(
         "- Do not spread suggestions across many areas unless truly necessary.\n"
         "- Prefer one primary focus area that will most improve specificity.\n"
         "- Each option must be directly insertable into the prompt.\n"
+        "- If a preferred focus section is supplied, every option must start with that section label, such as 'Context: ...'.\n"
         "- If you focus on task, make it more measurable or outcome-specific.\n"
         "- If you focus on context, add concrete constraints, qualifications, stakes, or operating conditions.\n"
         "- If you focus on output, make structure, counts, fields, and delivery expectations more exact.\n"
