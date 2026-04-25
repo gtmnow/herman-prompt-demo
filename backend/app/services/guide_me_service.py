@@ -372,6 +372,65 @@ class GuideMeService:
         except Exception:
             return fallback
 
+    async def _generate_specificity_refinement(
+        self,
+        *,
+        answers: dict[str, str],
+        requirements: dict[str, dict] | None,
+        score: dict[str, object] | None,
+        final_prompt: str,
+    ) -> dict[str, object]:
+        fallback_focus = _select_specificity_focus(
+            answers=answers,
+            requirements=requirements,
+            score=score,
+        )
+        fallback_guidance = _build_specificity_mode_guidance(
+            focus=fallback_focus,
+            requirements=requirements,
+            score=score,
+        )
+        fallback_options = _derive_refinement_options(
+            field=fallback_focus if fallback_focus in {"who", "task", "context", "output"} else None,
+            answers=answers,
+            requirements=requirements,
+        )
+
+        try:
+            prompt = _build_specificity_refinement_prompt(
+                answers=answers,
+                requirements=requirements,
+                score=score,
+                final_prompt=final_prompt,
+            )
+            response_text = await self.llm_client.generate_text(prompt=prompt)
+            payload = _extract_json_object(response_text)
+
+            focus_area_raw = str(payload.get("focus_area") or "").strip().lower()
+            focus_area = focus_area_raw if focus_area_raw in {"who", "task", "context", "output", "overall"} else fallback_focus
+
+            guidance = str(payload.get("guidance") or "").strip() or fallback_guidance
+            options_raw = payload.get("options")
+            options: list[str] = []
+            if isinstance(options_raw, list):
+                for option in options_raw:
+                    if isinstance(option, str) and option.strip():
+                        options.append(option.strip())
+            if not options:
+                options = fallback_options
+
+            return {
+                "focus_field": focus_area,
+                "guidance_text": guidance,
+                "refinement_options": options,
+            }
+        except Exception:
+            return {
+                "focus_field": fallback_focus,
+                "guidance_text": fallback_guidance,
+                "refinement_options": fallback_options,
+            }
+
     async def _extract_answer_updates(
         self,
         *,
@@ -562,23 +621,35 @@ class GuideMeService:
         target_field = _select_target_field_for_refinement(requirements=requirements)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
-        refinement_options = await self._generate_refinement_options(
-            field=target_field,
-            answers=answers,
-            requirements=requirements,
-            score=score,
-            final_prompt=final_prompt,
-        )
+        if _required_sections_complete(answers) and not passes:
+            specificity_refinement = await self._generate_specificity_refinement(
+                answers=answers,
+                requirements=requirements,
+                score=score,
+                final_prompt=final_prompt,
+            )
+            target_field = specificity_refinement.get("focus_field")
+            refinement_options = list(specificity_refinement.get("refinement_options") or [])
+            guidance_text = str(specificity_refinement.get("guidance_text") or "").strip()
+        else:
+            refinement_options = await self._generate_refinement_options(
+                field=target_field,
+                answers=answers,
+                requirements=requirements,
+                score=score,
+                final_prompt=final_prompt,
+            )
+            guidance_text = _build_refinement_guidance(
+                field=target_field,
+                requirements=requirements,
+                score=score,
+            )
         return {
             "passes": passes,
             "failing_field": failing_field,
             "target_field": target_field,
             "requirements": requirements,
-            "guidance_text": _build_refinement_guidance(
-                field=target_field,
-                requirements=requirements,
-                score=score,
-            ),
+            "guidance_text": guidance_text,
             "refinement_options": refinement_options,
         }
 
@@ -908,6 +979,37 @@ def _build_refinement_options_prompt(
     )
 
 
+def _build_specificity_refinement_prompt(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+    final_prompt: str,
+) -> str:
+    visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    return (
+        "You are helping a prompt-construction wizard improve a prompt that is already structurally complete. "
+        "The prompt has labeled Who, Task, Context, and Output sections, but the overall score is still below perfect. "
+        "Your job is to identify the single best improvement focus and provide prompt-ready rewrites.\n"
+        "Return strict JSON with exactly these keys:\n"
+        "- focus_area: one of who, task, context, output, overall\n"
+        "- guidance: a short plain-English sentence that tells the user what is still too weak or vague\n"
+        "- options: an array of exactly 3 prompt-ready rewrite strings\n"
+        "Rules:\n"
+        "- Do not ask the user open-ended questions.\n"
+        "- Do not spread suggestions across many areas unless truly necessary.\n"
+        "- Prefer one primary focus area that will most improve specificity.\n"
+        "- Each option must be directly insertable into the prompt.\n"
+        "- If you focus on task, make it more measurable or outcome-specific.\n"
+        "- If you focus on context, add concrete constraints, qualifications, stakes, or operating conditions.\n"
+        "- If you focus on output, make structure, counts, fields, and delivery expectations more exact.\n"
+        f"Current prompt: {final_prompt}\n"
+        f"Current sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
+        f"Transformer requirements: {json.dumps(requirements or {}, ensure_ascii=True)}\n"
+        f"Overall score payload: {json.dumps(score or {}, ensure_ascii=True)}"
+    )
+
+
 def _extract_json_object(text: str) -> dict:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -1211,6 +1313,114 @@ def _build_score_guidance(score: dict | None) -> str:
         "Your prompt now passes the required labeled sections, but one area is still too weak to reach a perfect score. "
         f"It is currently scoring {final_score}/100{llm_suffix}."
     )
+
+
+def _select_specificity_focus(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+) -> str:
+    target_field = _select_target_field_for_refinement(requirements=requirements)
+    if target_field:
+        return target_field
+    if _task_needs_specificity(str(answers.get("task") or "")):
+        return "task"
+    if _context_needs_specificity(str(answers.get("context") or "")):
+        return "context"
+    if _output_needs_specificity(str(answers.get("output") or "")):
+        return "output"
+    if _who_needs_specificity(str(answers.get("who") or "")):
+        return "who"
+    if not _is_perfect_score(score):
+        return "overall"
+    return "overall"
+
+
+def _task_needs_specificity(task: str) -> bool:
+    lowered = task.lower()
+    if not lowered.strip():
+        return True
+    has_metric = bool(re.search(r"\b\d+\b", lowered)) or any(
+        token in lowered for token in ("at least", "within", "by ", "over the next", "per", "%")
+    )
+    has_outcome = any(
+        token in lowered
+        for token in ("reduce", "increase", "improve", "recommend", "identify", "compare", "prioritize", "optimize")
+    )
+    return not (has_metric and has_outcome)
+
+
+def _context_needs_specificity(context: str) -> bool:
+    lowered = context.lower()
+    if not lowered.strip():
+        return True
+    if len(lowered.split()) < 10:
+        return True
+    has_constraint = any(
+        token in lowered
+        for token in (
+            "must",
+            "requires",
+            "within",
+            "budget",
+            "days",
+            "weeks",
+            "experience",
+            "skills",
+            "stock",
+            "immediate",
+            "mandatory",
+            "customer",
+            "stakeholder",
+        )
+    ) or bool(re.search(r"\b\d+\+?\b", lowered))
+    return not has_constraint
+
+
+def _output_needs_specificity(output: str) -> bool:
+    lowered = output.lower()
+    if not lowered.strip():
+        return True
+    has_structure = any(
+        token in lowered for token in ("table", "summary", "bullet", "section", "steps", "headings", "format")
+    )
+    has_precision = bool(re.search(r"\b\d+\b", lowered)) or any(
+        token in lowered for token in ("exact", "at least", "include", "columns", "rows")
+    )
+    return not (has_structure and has_precision)
+
+
+def _who_needs_specificity(who: str) -> bool:
+    lowered = who.lower()
+    if not lowered.strip():
+        return True
+    too_generic = any(token in lowered for token in ("subject-matter expert", "specialist", "advisor"))
+    has_domain = len(lowered.split()) >= 6 and any(token in lowered for token in ("experienced", "strategist", "buyer", "analyst", "attorney", "teacher", "historian"))
+    return too_generic or not has_domain
+
+
+def _build_specificity_mode_guidance(
+    *,
+    focus: str,
+    requirements: dict[str, dict] | None,
+    score: dict | None,
+) -> str:
+    requirement = (requirements or {}).get(focus) if isinstance(requirements, dict) else None
+    reason = str((requirement or {}).get("reason") or "").strip() if isinstance(requirement, dict) else ""
+    improvement_hint = str((requirement or {}).get("improvement_hint") or "").strip() if isinstance(requirement, dict) else ""
+    score_text = _build_score_guidance(score)
+    lead = {
+        "task": "Your prompt is well structured, but the Task is still not specific enough.",
+        "context": "Your prompt is well structured, but the Context still needs sharper constraints and operating details.",
+        "output": "Your prompt is well structured, but the Output still needs more exact structure and delivery requirements.",
+        "who": "Your prompt is well structured, but the Who section is still too generic.",
+        "overall": "Your prompt is well structured, but it still needs one stronger specificity improvement to raise the overall score.",
+    }.get(focus, "Your prompt is well structured, but it still needs one stronger specificity improvement.")
+    detail = " ".join(part for part in (reason, improvement_hint) if part)
+    if detail:
+        return f"{lead} {detail} {score_text}".strip()
+    return f"{lead} {score_text}".strip()
 
 
 def _is_perfect_score(score: dict | None) -> bool:
