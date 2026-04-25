@@ -67,9 +67,11 @@ Its intended behavior is:
 Important rules:
 
 - If an original prompt is provided, Guide Me should start from that prompt instead of starting with the generic intro flow.
+- Guide Me should also consider the current conversation context when interpreting that prompt.
 - Guide Me should never ask for sections that already score the maximum points.
 - Normal collection steps should show one clear prompt only; extra guidance panels should be reserved for `Refine`.
 - Examples shown in the wizard should be professional and context-aware, not canned demo copy.
+- Failed validation should route the user back to the specific weak section instead of repeating a generic refine loop.
 - `Refine` must only appear when there is a concrete weak area or score gap to fix.
 - Refinement suggestions must be tied to the weak field.
 - Refinement suggestions must be prompt-ready content, not user-facing advice.

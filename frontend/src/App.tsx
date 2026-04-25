@@ -326,17 +326,21 @@ export function App() {
       setFeedbackDraft(null);
     }
 
-    if (guideMeSession && guideMeSession.status !== "cancelled") {
-      setGuideMeOpen(true);
-      return;
-    }
-
     const fallbackPrompt =
       sourcePrompt?.trim() ||
       draft.trim() ||
       turns.slice().reverse().find((turn) => turn.assistantKind === "coaching")?.userText ||
       turns.slice().reverse()[0]?.userText ||
       "";
+
+    if (guideMeSession && guideMeSession.status !== "cancelled") {
+      if (fallbackPrompt) {
+        void startGuideMe(true, fallbackPrompt);
+        return;
+      }
+      setGuideMeOpen(true);
+      return;
+    }
 
     void startGuideMe(false, fallbackPrompt);
   }

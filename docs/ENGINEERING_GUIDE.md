@@ -137,10 +137,12 @@ Current intended behavior:
 Important implementation rules:
 
 - If an original prompt is present, Guide Me should skip the generic opening flow and begin with targeted repair.
+- Guide Me should use both the original prompt and the recent conversation context when seeding prompt sections.
 - Already-maxed sections should not be asked again.
 - The step order is dynamic and should be driven by the original prompt's weak elements, not by a fixed wizard sequence.
 - Normal collection steps should show one clear prompt only; extra coaching panels should be reserved for targeted `Refine` states.
 - Examples shown in the wizard should be professional and context-aware, not canned hard-coded demo copy.
+- Failed validation should send the user back to the exact weak field instead of re-entering a generic refine loop.
 - One user answer may populate multiple sections if the answer clearly contains that information.
 - `Refine` is a targeted repair step, not a generic polish step.
 - Refinement suggestions must be tied to the currently weak field or score gap.

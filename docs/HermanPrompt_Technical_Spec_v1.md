@@ -154,9 +154,11 @@ In full enforcement mode, Guide Me must output explicitly labeled sections:
 #### Refinement rules
 
 - The original prompt must be the starting point for the entire repair flow.
+- The current conversation context should also be used when interpreting the original prompt.
 - Sections that already have maximum points must not be asked again.
 - Normal collection steps should not duplicate helper text in a second coaching panel.
 - Any example shown in the wizard should be professional and tailored to the user's prompt context.
+- If validation still fails, the flow should return to the exact weak section instead of looping through a generic refine screen.
 - Refinement must be tied to the currently weak element or explicit scoring gap.
 - Refinement options must be phrased as prompt-ready text that can be inserted directly into the final prompt.
 - Refinement must not repeat as a generic polish loop once the actual weak area has been addressed.

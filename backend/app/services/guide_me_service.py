@@ -38,12 +38,18 @@ class GuideMeService:
             summary_type=payload.summary_type,
         )
         source_prompt = (payload.source_prompt or "").strip()
+        chat_context = self._build_chat_context(
+            conversation_id=payload.conversation_id,
+            user_id_hash=user.user_id_hash,
+        )
         source_analysis = await self._analyze_source_prompt(
             conversation_id=payload.conversation_id,
             user=user,
             source_prompt=source_prompt,
             summary_type=payload.summary_type,
             enforcement_level=payload.enforcement_level,
+            personalization=personalization,
+            chat_context=chat_context,
         )
         initial_answers = source_analysis.get("answers", {})
         initial_step = source_analysis.get("current_step", "intro")
@@ -216,6 +222,19 @@ class GuideMeService:
             recent_examples=recent_prompts[:3],
         ).model_dump()
 
+    def _build_chat_context(self, *, conversation_id: str, user_id_hash: str) -> str:
+        turn_history = self.conversation_service.get_turn_history(
+            conversation_id=conversation_id,
+            user_id_hash=user_id_hash,
+        )
+        snippets: list[str] = []
+        for turn in turn_history[-3:]:
+            if turn.user_text.strip():
+                snippets.append(f"User: {turn.user_text.strip()}")
+            if turn.assistant_text.strip():
+                snippets.append(f"Assistant: {turn.assistant_text.strip()}")
+        return "\n".join(snippets).strip()
+
     def _serialize_session(self, guide_session: GuideMeSession) -> GuideMeSessionPayload:
         personalization = GuideMePersonalization.model_validate(guide_session.personalization or {})
         question_title, question_text = _question_for_session(
@@ -334,16 +353,28 @@ class GuideMeService:
         source_prompt: str,
         summary_type: int | None,
         enforcement_level: str | None,
+        personalization: dict,
+        chat_context: str,
     ) -> dict:
         if not source_prompt:
             return {"answers": {}, "current_step": "intro", "guidance_text": "", "refinement_options": []}
 
         answers = _extract_labeled_answers(source_prompt)
         answers["_source_prompt"] = source_prompt
+        if chat_context:
+            answers["_chat_context"] = chat_context
         if summary_type is not None:
             answers["_summary_type"] = str(summary_type)
         if enforcement_level:
             answers["_enforcement_level"] = enforcement_level
+
+        seeded_updates = await self._extract_answer_updates(
+            current_step="describe_need",
+            answer=source_prompt,
+            answers=answers,
+            personalization=personalization,
+        )
+        answers = _merge_answer_updates(answers, seeded_updates)
 
         try:
             transformed = await self.transformer_client.transform_prompt(
@@ -380,24 +411,17 @@ class GuideMeService:
                     }
                 if target_field:
                     answers["_target_field"] = target_field
-                    guidance_text = _build_refinement_guidance(
-                        field=target_field,
-                        answers=answers,
-                        score=score,
-                    )
                     return {
                         "answers": answers,
-                        "current_step": "refine",
-                        "guidance_text": guidance_text,
-                        "refinement_options": _derive_refinement_options(
-                            field=target_field,
-                            answers=answers,
-                        ),
+                        "current_step": _field_to_step(target_field),
+                        "guidance_text": "",
+                        "refinement_options": [],
                     }
         except Exception:
             pass
 
-        return {"answers": answers, "current_step": "intro", "guidance_text": "", "refinement_options": []}
+        next_step = _next_collection_step(answers)
+        return {"answers": answers, "current_step": next_step, "guidance_text": "", "refinement_options": []}
 
     async def _apply_validation_result(self, *, guide_session: GuideMeSession, answers: dict[str, str], final_prompt: str) -> None:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
@@ -412,11 +436,13 @@ class GuideMeService:
         target_field = validation["target_field"]
         if target_field:
             answers["_target_field"] = target_field
-        guide_session.current_step = "refine"
+            guide_session.current_step = _field_to_step(target_field)
+        else:
+            guide_session.current_step = "complete"
         guide_session.status = "active"
         guide_session.final_prompt = ""
-        guide_session.guidance_text = validation["guidance_text"]
-        guide_session.follow_up_questions = validation["refinement_options"]
+        guide_session.guidance_text = ""
+        guide_session.follow_up_questions = []
 
     async def _validate_compiled_prompt(self, *, guide_session: GuideMeSession, final_prompt: str) -> dict[str, object]:
         answers = guide_session.answers or {}
@@ -476,12 +502,17 @@ def _question_for_session(
             f"Hi {personalization.first_name}, I assume you typically want to {personalization.typical_ai_usage}. Is this what you need today, Yes or No?",
         )
     if current_step == "describe_need":
-        return ("Today’s Need", "Please describe what you need today.")
+        return (
+            "Today’s Need",
+            _question_prefix(field="task", answers=answers)
+            + "Please describe what you need today."
+        )
     if current_step == "who":
         example = _build_who_example(personalization, answers)
         return (
             "Who Am I Today?",
-            f'Please type in my Role and Objective. Tell me who I should act like and what I need to accomplish, such as "{example}"',
+            _question_prefix(field="who", answers=answers)
+            + f'Please type in my Role and Objective. Tell me who I should act like and what I need to accomplish, such as "{example}"',
         )
     if current_step == "why":
         example = _build_why_example(personalization, answers)
@@ -492,12 +523,14 @@ def _question_for_session(
     if current_step == "how":
         return (
             "How Can I Accomplish This?",
-            'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know.',
+            _question_prefix(field="context", answers=answers)
+            + 'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know.',
         )
     if current_step == "what":
         return (
             "What Is My Output?",
-            'Please type in your desired output format and structure. Include any final instructions, such as tone, headings, tables, links, or things to avoid.',
+            _question_prefix(field="output", answers=answers)
+            + 'Please type in your desired output format and structure. Include any final instructions, such as tone, headings, tables, links, or things to avoid.',
         )
     if current_step == "refine":
         numbered = "\n".join(f"{index + 1}. {question}" for index, question in enumerate(follow_up_questions))
@@ -616,6 +649,7 @@ def _build_answer_extraction_prompt(
     personalization: dict,
 ) -> str:
     visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    chat_context = str(answers.get("_chat_context") or "").strip()
     return (
         "You are helping a guided prompt builder merge one user answer into structured prompt sections. "
         "Return strict JSON with optional keys who, task, context, output, instructions. "
@@ -625,6 +659,7 @@ def _build_answer_extraction_prompt(
         f"Current step: {current_step}\n"
         f"Existing sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
         f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
+        f"Recent chat context: {chat_context or 'None'}\n"
         f"User answer: {answer}"
     )
 
@@ -648,6 +683,18 @@ def _required_sections_complete(answers: dict[str, str]) -> bool:
     return all((answers.get(key) or "").strip() for key in ("who", "task", "context", "output"))
 
 
+def _merge_answer_updates(answers: dict[str, str], updates: dict[str, str]) -> dict[str, str]:
+    merged = dict(answers)
+    for key, value in updates.items():
+        cleaned = value.strip()
+        if not cleaned:
+            continue
+        current = str(merged.get(key) or "").strip()
+        if not current or len(cleaned) > len(current):
+            merged[key] = cleaned
+    return merged
+
+
 def _next_collection_step(answers: dict[str, str]) -> str:
     target_field = answers.get("_target_field")
     if isinstance(target_field, str) and not (answers.get(target_field) or "").strip():
@@ -667,6 +714,18 @@ def _step_to_field(step: str) -> str | None:
         "what": "output",
         "why": "instructions",
     }.get(step)
+
+
+def _question_prefix(*, field: str, answers: dict[str, str]) -> str:
+    if answers.get("_target_field") != field:
+        return ""
+    prefixes = {
+        "task": "Your current prompt still needs a clearer task. ",
+        "who": "Your current prompt still needs a stronger role definition. ",
+        "context": "Your current prompt still needs more context for the situation and audience. ",
+        "output": "Your current prompt still needs a more specific output format. ",
+    }
+    return prefixes.get(field, "")
 
 
 def _heuristic_extract_answer_updates(*, current_step: str, answer: str) -> dict[str, str]:
