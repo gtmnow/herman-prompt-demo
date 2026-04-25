@@ -335,6 +335,42 @@ class GuideMeService:
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
         return _compose_final_prompt(answers)
 
+    async def _generate_refinement_options(
+        self,
+        *,
+        field: str | None,
+        answers: dict[str, str],
+        requirements: dict[str, dict] | None,
+        score: dict[str, object] | None,
+        final_prompt: str,
+    ) -> list[str]:
+        fallback = _derive_refinement_options(field=field, answers=answers, requirements=requirements)
+        try:
+            prompt = _build_refinement_options_prompt(
+                field=field,
+                answers=answers,
+                requirements=requirements,
+                score=score,
+                final_prompt=final_prompt,
+            )
+            response_text = await self.llm_client.generate_text(prompt=prompt)
+            payload = _extract_json_object(response_text)
+            options = payload.get("options")
+            if not isinstance(options, list):
+                return fallback
+
+            cleaned_options: list[str] = []
+            for option in options:
+                if not isinstance(option, str):
+                    continue
+                cleaned = option.strip()
+                if not cleaned:
+                    continue
+                cleaned_options.append(cleaned)
+            return cleaned_options or fallback
+        except Exception:
+            return fallback
+
     async def _extract_answer_updates(
         self,
         *,
@@ -461,10 +497,7 @@ class GuideMeService:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
         if validation["requirements"] is not None:
             answers["_transformer_requirements"] = validation["requirements"]
-        if validation["passes"] or (
-            validation["target_field"] is None
-            and _requirements_indicate_completion(validation["requirements"])
-        ):
+        if validation["passes"]:
             guide_session.current_step = "complete"
             guide_session.status = "complete"
             guide_session.final_prompt = final_prompt
@@ -477,11 +510,11 @@ class GuideMeService:
             answers["_target_field"] = target_field
             guide_session.current_step = _field_to_step(target_field)
         else:
-            guide_session.current_step = _next_collection_step(answers)
+            guide_session.current_step = "refine" if _required_sections_complete(answers) else _next_collection_step(answers)
         guide_session.status = "active"
         guide_session.final_prompt = final_prompt
-        guide_session.guidance_text = ""
-        guide_session.follow_up_questions = []
+        guide_session.guidance_text = str(validation.get("guidance_text") or "").strip()
+        guide_session.follow_up_questions = list(validation.get("refinement_options") or [])
 
     async def _validate_compiled_prompt(self, *, guide_session: GuideMeSession, final_prompt: str) -> dict[str, object]:
         answers = guide_session.answers or {}
@@ -516,6 +549,13 @@ class GuideMeService:
         target_field = _select_target_field_for_refinement(requirements=requirements)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
+        refinement_options = await self._generate_refinement_options(
+            field=target_field,
+            answers=answers,
+            requirements=requirements,
+            score=score,
+            final_prompt=final_prompt,
+        )
         return {
             "passes": passes,
             "failing_field": failing_field,
@@ -526,7 +566,7 @@ class GuideMeService:
                 requirements=requirements,
                 score=score,
             ),
-            "refinement_options": _derive_refinement_options(field=target_field, answers=answers, requirements=requirements),
+            "refinement_options": refinement_options,
         }
 
 
@@ -807,6 +847,34 @@ def _build_answer_extraction_prompt(
         f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
         f"Recent chat context: {chat_context or 'None'}\n"
         f"User answer: {answer}"
+    )
+
+
+def _build_refinement_options_prompt(
+    *,
+    field: str | None,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+    final_prompt: str,
+) -> str:
+    requirement = (requirements or {}).get(field or "") if isinstance(requirements, dict) else None
+    requirement_payload = requirement if isinstance(requirement, dict) else {}
+    visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    focus = field or "overall prompt quality"
+    return (
+        "You are helping a prompt-construction wizard produce rewrite suggestions for one weak part of a prompt. "
+        "Return strict JSON with a single key named options whose value is an array of exactly 3 strings. "
+        "Each string must be prompt-ready text that can be inserted directly into the prompt. "
+        "Do not write advice to the user. Do not explain your reasoning. "
+        "Prefer labeled rewrites like 'Task: ...', 'Context: ...', 'Output: ...', or 'Who: ...'. "
+        "If the weak area is overall prompt quality, return 3 labeled rewrites that strengthen the most likely weak sections. "
+        "Make the rewrites more specific, measurable, and operational than the current prompt.\n"
+        f"Focus area: {focus}\n"
+        f"Current prompt: {final_prompt}\n"
+        f"Current sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
+        f"Transformer requirement feedback: {json.dumps(requirement_payload, ensure_ascii=True)}\n"
+        f"Overall score payload: {json.dumps(score or {}, ensure_ascii=True)}"
     )
 
 
@@ -1454,6 +1522,8 @@ def _build_refinement_guidance(*, field: str | None, requirements: dict[str, dic
 
 
 def _derive_refinement_options(*, field: str | None, answers: dict[str, str], requirements: dict[str, dict] | None) -> list[str]:
+    if field is None:
+        return _overall_refinement_options(answers)
     if field == "who":
         return _who_refinement_options(answers)
     if field == "task":
@@ -1551,6 +1621,24 @@ def _output_refinement_options(answers: dict[str, str]) -> list[str]:
         "Output: Format the response as a concise report with bold section headings and clear next steps.",
         "Output: Provide a plain-language explanation, then a bullet list of key takeaways, then recommended actions.",
     ]
+
+
+def _overall_refinement_options(answers: dict[str, str]) -> list[str]:
+    task = (answers.get("task") or "this request").strip().rstrip(".")
+    context = (answers.get("context") or "").strip()
+    options = [
+        f"Task: {task}. State the measurable outcome, timeframe, or success target more explicitly.",
+        "Context: Add the most important real-world constraints, qualification gaps, or operational details that should shape the answer.",
+        "Output: Specify the exact sections, bullet counts, and order you want in the response.",
+    ]
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers) or "this role"
+        return [
+            f"Task: Recommend specific changes to reduce unqualified applicants for the {role} role by at least 30% over the next hiring cycle.",
+            f"Context: Include the specific experience gaps, must-have qualifications, and customer segment for the {role} role.",
+            "Output: Respond in this chat with a 3-sentence summary, 5 bullet points to improve the job description, 5 bullet points to strengthen screening criteria, 3 sourcing recommendations, and 3 immediate next steps.",
+        ]
+    return options
 
 
 def _apply_refinement_updates(answers: dict[str, str], refinement_text: str) -> dict[str, str]:
