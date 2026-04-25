@@ -160,9 +160,7 @@ function GuideIndicators({
         <div key={item.label} className="coaching-indicator">
           <span aria-hidden="true" className={`coaching-indicator-dot coaching-indicator-${item.state}`} />
           <span>
-            {item.label} {item.deterministicScore ?? 0}/{item.maxScore ?? 25}
-            {" "}
-            AI {item.aiScore ?? "--"}/{item.maxScore ?? 25}
+            {item.label} {item.deterministicScore ?? 0}/{item.aiScore ?? "--"}
           </span>
         </div>
       ))}
