@@ -73,6 +73,9 @@ class GuideMeRespondRequest(BaseModel):
 class GuideMeRequirementIndicator(BaseModel):
     state: Literal["met", "partial", "missing"]
     label: str
+    deterministic_score: int | None = None
+    ai_score: int | None = None
+    max_score: int = 25
 
 
 class GuideMePersonalization(BaseModel):

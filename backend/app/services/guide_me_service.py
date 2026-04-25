@@ -559,7 +559,13 @@ def _build_requirement_indicators(answers: dict[str, str]) -> dict[str, GuideMeR
             state = "met" if len(value.strip()) > 24 else "partial"
         else:
             state = "missing"
-        indicators[key] = GuideMeRequirementIndicator(label=label, state=state)
+        indicators[key] = GuideMeRequirementIndicator(
+            label=label,
+            state=state,
+            deterministic_score=_field_score_out_of_25(key, answers),
+            ai_score=None,
+            max_score=25,
+        )
     return indicators
 
 
@@ -916,6 +922,19 @@ def _field_strength_score(field: str, answers: dict[str, str]) -> int:
     if field == "task" and any(token in value.lower() for token in ("explain", "create", "draft", "analyze", "compare", "summarize")):
         score += 1
     return score
+
+
+def _field_score_out_of_25(field: str, answers: dict[str, str]) -> int:
+    strength = _field_strength_score(field, answers)
+    if strength <= 0:
+        return 0
+    if strength == 1:
+        return 8
+    if strength == 2:
+        return 14
+    if strength == 3:
+        return 20
+    return 25
 
 
 def _build_refinement_guidance(*, field: str | None, answers: dict[str, str], score: dict | None) -> str:

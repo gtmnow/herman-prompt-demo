@@ -36,6 +36,12 @@ type CoachingRequirementIndicator = {
   state: "met" | "partial" | "missing";
 };
 
+type GuideMeRequirementApiIndicator = CoachingRequirementIndicator & {
+  deterministic_score?: number | null;
+  ai_score?: number | null;
+  max_score?: number;
+};
+
 type GuideMeApiSession = {
   session_id: string;
   conversation_id: string;
@@ -44,7 +50,7 @@ type GuideMeApiSession = {
   question_title?: string | null;
   question_text?: string | null;
   answers: Record<string, string>;
-  requirements: Record<string, CoachingRequirementIndicator>;
+  requirements: Record<string, GuideMeRequirementApiIndicator>;
   personalization: {
     first_name: string;
     typical_ai_usage: string;
@@ -1220,6 +1226,19 @@ function hasExplicitLabel(userText: string, key: string): boolean {
 }
 
 function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
+  const requirements = Object.fromEntries(
+    Object.entries(session.requirements ?? {}).map(([key, requirement]) => [
+      key,
+      {
+        label: requirement.label,
+        state: requirement.state,
+        deterministicScore: requirement.deterministic_score ?? null,
+        aiScore: requirement.ai_score ?? null,
+        maxScore: requirement.max_score ?? 25,
+      },
+    ]),
+  );
+
   return {
     sessionId: session.session_id,
     conversationId: session.conversation_id,
@@ -1228,7 +1247,7 @@ function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
     questionTitle: session.question_title ?? null,
     questionText: session.question_text ?? null,
     answers: session.answers ?? {},
-    requirements: session.requirements ?? {},
+    requirements,
     personalization: {
       firstName: session.personalization.first_name,
       typicalAiUsage: session.personalization.typical_ai_usage,

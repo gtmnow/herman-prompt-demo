@@ -1,6 +1,9 @@
 type GuideMeRequirementIndicator = {
   label: string;
   state: "met" | "partial" | "missing";
+  deterministicScore?: number | null;
+  aiScore?: number | null;
+  maxScore?: number;
 };
 
 export type GuideMeSession = {
@@ -149,14 +152,18 @@ function GuideIndicators({
 }) {
   const orderedKeys = ["who", "task", "context", "output"];
   const items = orderedKeys
-    .map((key) => requirements?.[key] ?? { label: key[0].toUpperCase() + key.slice(1), state: "missing" as const });
+    .map((key) => requirements?.[key] ?? { label: key[0].toUpperCase() + key.slice(1), state: "missing" as const, deterministicScore: 0, aiScore: null, maxScore: 25 });
 
   return (
     <div className="coaching-indicator-row" aria-label="Guide Me prompt element status">
       {items.map((item) => (
         <div key={item.label} className="coaching-indicator">
           <span aria-hidden="true" className={`coaching-indicator-dot coaching-indicator-${item.state}`} />
-          <span>{item.label}</span>
+          <span>
+            {item.label} {item.deterministicScore ?? 0}/{item.maxScore ?? 25}
+            {" "}
+            AI {item.aiScore ?? "--"}/{item.maxScore ?? 25}
+          </span>
         </div>
       ))}
     </div>
