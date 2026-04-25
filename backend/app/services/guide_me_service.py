@@ -164,9 +164,7 @@ class GuideMeService:
                     next_step = _next_collection_step(answers)
                     guide_session.current_step = next_step
                     guide_session.status = "active"
-                    target_field = answers.get("_target_field")
-                    field_for_guidance = _step_to_field(next_step) or target_field
-                    guide_session.guidance_text = _build_field_guidance(field_for_guidance)
+                    guide_session.guidance_text = ""
                     guide_session.follow_up_questions = []
 
             guide_session.answers = answers
@@ -365,11 +363,10 @@ class GuideMeService:
             if failing_field:
                 answers["_target_field"] = failing_field
                 current_step = _field_to_step(failing_field)
-                guidance_text = _build_field_guidance(failing_field)
                 return {
                     "answers": answers,
                     "current_step": current_step,
-                    "guidance_text": guidance_text,
+                    "guidance_text": "",
                     "refinement_options": [],
                 }
             if _required_sections_complete(answers):
@@ -588,13 +585,27 @@ def _merge_sections(primary: str, secondary: str) -> str:
 
 
 def _build_who_example(personalization: GuideMePersonalization, answers: dict[str, str]) -> str:
-    task = answers.get("task") or personalization.typical_ai_usage
-    return f"Act as a senior advisor and help me {task}."
+    task = (answers.get("task") or personalization.typical_ai_usage).strip().rstrip(".")
+    context = (answers.get("context") or "").lower()
+    if "will" in context or "estate" in context:
+        return "You are an experienced estate planning attorney helping me understand how to create a will."
+    if "book report" in context or "10-year-old" in context:
+        return "You are a U.S. history teacher explaining this topic clearly for a 10-year-old student."
+    if any(keyword in task.lower() for keyword in ("brief", "strategy", "plan", "roadmap")):
+        return f"You are a senior strategy advisor helping me {task}."
+    if any(keyword in task.lower() for keyword in ("email", "message", "reply", "communication")):
+        return f"You are an executive communications advisor helping me {task}."
+    return f"You are an experienced subject-matter expert helping me {task}."
 
 
 def _build_why_example(personalization: GuideMePersonalization, answers: dict[str, str]) -> str:
-    task = answers.get("task") or personalization.typical_ai_usage
-    return f"Give me practical, direct guidance for {task}. Do not include sensitive or confidential information."
+    task = (answers.get("task") or personalization.typical_ai_usage).strip().rstrip(".")
+    context = (answers.get("context") or "").lower()
+    if "will" in context or "estate" in context:
+        return "Explain the key considerations in plain English, stay practical, and define any legal terms you use."
+    if "book report" in context or "10-year-old" in context:
+        return "Keep the explanation accurate, simple, and engaging, with no dense historical jargon."
+    return f"Provide practical, well-structured guidance for {task}. Keep the response clear, concise, and professional."
 
 
 def _build_answer_extraction_prompt(
@@ -721,16 +732,6 @@ def _field_to_step(field: str) -> str:
         "context": "how",
         "output": "what",
     }.get(field, "intro")
-
-
-def _build_field_guidance(field: str | None) -> str:
-    guidance = {
-        "who": 'A strong "Who" tells the model who to act like. Example: Who: You are a U.S. historian who explains events in kid-friendly language.',
-        "task": 'A strong "Task" clearly states the job to do. Example: Task: Explain why George Washington is famous and what made him important in early American history.',
-        "context": 'A strong "Context" explains the audience and situation. Example: Context: This is for a 10-year-old\'s book report, so keep it simple, accurate, and easy to follow.',
-        "output": 'A strong "Output" specifies the delivery format. Example: Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.',
-    }
-    return guidance.get(field, "")
 
 
 def _build_score_guidance(score: dict | None) -> str:

@@ -84,7 +84,9 @@ export function GuideMePanel({
             <GuideIndicators requirements={session.requirements} />
 
             {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
-            {session.guidanceText ? <div className="guide-me-guidance">{session.guidanceText}</div> : null}
+            {session.currentStep === "refine" && session.guidanceText ? (
+              <div className="guide-me-guidance">{session.guidanceText}</div>
+            ) : null}
 
             {session.readyToInsert && session.finalPrompt ? (
               <div className="guide-me-final">

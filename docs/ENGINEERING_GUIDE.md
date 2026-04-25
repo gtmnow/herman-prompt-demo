@@ -118,22 +118,29 @@ Guide Me is not a generic Q&A flow. It is a prompt-repair and prompt-constructio
 
 Current intended behavior:
 
-1. Start from the user's current prompt when available
-2. Parse any existing labeled sections already present
-3. Validate the prompt against Prompt Transformer
-4. Detect the weakest or failing section first
-5. Ask only for information that improves that weak section
-6. Merge user answers semantically across sections instead of binding one answer to one step
-7. Build a final prompt using labeled sections:
+1. Start from the user's original prompt when available
+2. Parse any existing labeled sections already present in that prompt
+3. Validate and score the original prompt against Prompt Transformer
+4. Determine which sections are below the maximum score
+5. Queue only those below-max sections for repair
+6. Ask only for information that improves the currently weak section
+7. Re-score after each repair so the flow keeps targeting only the remaining weak sections
+8. Merge user answers semantically across sections instead of binding one answer to one step
+9. Build a final prompt using labeled sections:
    - `Who:`
    - `Task:`
    - `Context:`
    - `Output:`
    - `Additional Information:`
-8. Revalidate the compiled prompt before presenting it as complete
+10. Present the prompt as complete only when no section still needs improvement
 
 Important implementation rules:
 
+- If an original prompt is present, Guide Me should skip the generic opening flow and begin with targeted repair.
+- Already-maxed sections should not be asked again.
+- The step order is dynamic and should be driven by the original prompt's weak elements, not by a fixed wizard sequence.
+- Normal collection steps should show one clear prompt only; extra coaching panels should be reserved for targeted `Refine` states.
+- Examples shown in the wizard should be professional and context-aware, not canned hard-coded demo copy.
 - One user answer may populate multiple sections if the answer clearly contains that information.
 - `Refine` is a targeted repair step, not a generic polish step.
 - Refinement suggestions must be tied to the currently weak field or score gap.

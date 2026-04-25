@@ -112,31 +112,32 @@ Its purpose is to help the user assemble a prompt that passes Prompt Transformer
 
 Guide Me should:
 
-1. ingest the user's current prompt when available
+1. ingest the user's original prompt when available
 2. parse existing labeled fields already present in that prompt
-3. validate the prompt against Prompt Transformer
-4. identify the weakest or failing element first
-5. ask targeted questions to improve only what is still missing or weak
+3. validate and score the original prompt against Prompt Transformer
+4. identify only the elements that do not receive maximum points
+5. ask targeted questions only for those non-max elements
 6. merge each user answer across all relevant prompt sections
-7. compile a final labeled prompt
-8. revalidate the compiled prompt before completion
+7. re-score after each change and continue only on the remaining weak elements
+8. compile a final labeled prompt
+9. complete only when the prompt no longer has sections needing improvement
 
 #### Guide Me step model
 
-- `Intro`
-  Purpose: confirm whether the user's typical use matches today's need
+- `Prompt Intake`
+  Purpose: ingest and score the user's original prompt before asking anything else
 - `Describe Need`
-  Purpose: capture today's task if the intro answer is no
+  Purpose: capture today's task only when the original prompt does not provide enough task information
 - `Who`
-  Purpose: define the role or persona
+  Purpose: improve the role or persona only if `Who` is below the maximum score
 - `Why`
-  Purpose: gather instructions, guardrails, and preferences
+  Purpose: improve instructions, guardrails, and preferences only if more direction is still needed
 - `How`
-  Purpose: gather context and background
+  Purpose: improve context and background only if `Context` is below the maximum score
 - `What`
-  Purpose: define delivery format and structure
+  Purpose: improve delivery format and structure only if `Output` is below the maximum score
 - `Refine`
-  Purpose: repair a specific weak section or score gap using prompt-ready examples only
+  Purpose: repair a specific below-max section or score gap using prompt-ready examples only
 - `Complete`
   Purpose: present a validated compiled prompt for insertion into the composer
 
@@ -152,6 +153,10 @@ In full enforcement mode, Guide Me must output explicitly labeled sections:
 
 #### Refinement rules
 
+- The original prompt must be the starting point for the entire repair flow.
+- Sections that already have maximum points must not be asked again.
+- Normal collection steps should not duplicate helper text in a second coaching panel.
+- Any example shown in the wizard should be professional and tailored to the user's prompt context.
 - Refinement must be tied to the currently weak element or explicit scoring gap.
 - Refinement options must be phrased as prompt-ready text that can be inserted directly into the final prompt.
 - Refinement must not repeat as a generic polish loop once the actual weak area has been addressed.

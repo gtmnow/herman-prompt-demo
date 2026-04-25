@@ -49,21 +49,27 @@ Guide Me is the coaching wizard used to repair or construct prompts that satisfy
 
 Its intended behavior is:
 
-1. Ingest the user's current prompt when launched from the composer, coaching card, or feedback flow
-2. Parse any labeled sections already present
-3. Validate the prompt against Prompt Transformer
-4. Ask only for the information needed to strengthen the weakest or failing section
-5. Merge user answers into the prompt semantically, even when one answer supplies multiple sections
-6. Build the final prompt using explicit labels required by full enforcement mode:
+1. Ingest the user's original prompt when launched from the composer, coaching card, or feedback flow
+2. Parse any labeled sections already present in that prompt
+3. Validate and score the original prompt against Prompt Transformer
+4. Identify only the elements that do not receive the maximum score
+5. Take the user only through the steps needed to improve those non-max elements
+6. Merge user answers into the prompt semantically, even when one answer supplies multiple sections
+7. Re-score after each improvement so the wizard keeps focusing only on the remaining weak elements
+8. Build the final prompt using explicit labels required by full enforcement mode:
    - `Who:`
    - `Task:`
    - `Context:`
    - `Output:`
    - `Additional Information:`
-7. Revalidate the compiled prompt before marking the wizard complete
+9. Mark the wizard complete only when no section still needs improvement
 
 Important rules:
 
+- If an original prompt is provided, Guide Me should start from that prompt instead of starting with the generic intro flow.
+- Guide Me should never ask for sections that already score the maximum points.
+- Normal collection steps should show one clear prompt only; extra guidance panels should be reserved for `Refine`.
+- Examples shown in the wizard should be professional and context-aware, not canned demo copy.
 - `Refine` must only appear when there is a concrete weak area or score gap to fix.
 - Refinement suggestions must be tied to the weak field.
 - Refinement suggestions must be prompt-ready content, not user-facing advice.
