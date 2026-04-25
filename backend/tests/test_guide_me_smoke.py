@@ -251,6 +251,33 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.decision_trace.get("mode"), "specificity")
         self.assertGreaterEqual(session.decision_trace.get("refinement_option_count", 0), 1)
 
+    async def test_intro_no_routes_to_describe_need_without_completing(self) -> None:
+        start = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_intro_no",
+                source_prompt="",
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+        session = start.session
+        assert session is not None
+        self.assertEqual(session.current_step, "intro")
+
+        responded = await self.service.respond(
+            GuideMeRespondRequest(
+                conversation_id="conv_intro_no",
+                answer="no",
+            ),
+            user=self.user,
+        )
+
+        updated = responded.session
+        assert updated is not None
+        self.assertEqual(updated.current_step, "describe_need")
+        self.assertEqual(updated.status, "active")
+        self.assertFalse(updated.ready_to_insert)
+
     async def test_refine_response_can_complete_session_when_context_fix_is_applied(self) -> None:
         source_prompt = (
             "Who: You are an experienced recruiting strategist helping me improve hiring quality for a Customer Success Manager position role.\n\n"

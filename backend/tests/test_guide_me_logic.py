@@ -13,6 +13,7 @@ from app.services.guide_me_service import (  # noqa: E402
     _all_requirement_scores_maxed,
     _apply_primary_step_answer,
     _build_decision_trace,
+    _build_task_specific_who_example,
     _is_perfect_score,
     _next_guide_me_step,
     _build_specificity_mode_guidance,
@@ -232,6 +233,22 @@ class GuideMeLogicTests(unittest.TestCase):
         self.assertEqual(trace["target_field"], "context")
         self.assertEqual(trace["refinement_option_count"], 1)
         self.assertEqual(trace["requirements_summary"]["context"]["heuristic_score"], 0)
+
+    def test_task_specific_who_example_uses_procurement_role_for_ram_prompt(self) -> None:
+        example = _build_task_specific_who_example(
+            task="find a cheaper source for RAM SIMMS",
+            context="need current stock and immediate shipment",
+        )
+        self.assertIn("discrete parts sourcing specialist", example)
+        self.assertNotIn("subject-matter expert", example)
+
+    def test_task_specific_who_example_uses_prompt_role_for_prompt_work(self) -> None:
+        example = _build_task_specific_who_example(
+            task="improve prompts so they are more structured and useful",
+            context="",
+        )
+        self.assertIn("AI prompt strategist", example)
+        self.assertNotIn("subject-matter expert", example)
 
 
 if __name__ == "__main__":

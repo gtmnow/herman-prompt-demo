@@ -119,6 +119,8 @@ class GuideMeService:
                 if _looks_like_yes(normalized):
                     if not answers.get("task"):
                         answers["task"] = str((guide_session.personalization or {}).get("typical_ai_usage") or "").strip()
+                    guide_session.current_step = _next_collection_step(answers)
+                    skip_extraction = True
                 else:
                     guide_session.current_step = "describe_need"
                     skip_extraction = True
@@ -146,6 +148,14 @@ class GuideMeService:
                 )
             else:
                 raise ValueError("Guide Me session is already complete.")
+
+            if current_step == "intro":
+                guide_session.answers = answers
+                guide_session.final_prompt = _compose_final_prompt(answers)
+                guide_session.updated_at = datetime.utcnow()
+                session.commit()
+                session.refresh(guide_session)
+                return GuideMeSessionResponse(session=self._serialize_session(guide_session))
 
             if current_step != "refine":
                 if not skip_extraction:
@@ -1000,7 +1010,7 @@ def _build_who_example(personalization: GuideMePersonalization, answers: dict[st
         return f"You are a senior strategy advisor helping me {task}."
     if any(keyword in task.lower() for keyword in ("email", "message", "reply", "communication")):
         return f"You are an executive communications advisor helping me {task}."
-    return f"You are an experienced subject-matter expert helping me {task}."
+    return _build_task_specific_who_example(task=task, context=context)
 
 
 def _build_why_example(personalization: GuideMePersonalization, answers: dict[str, str]) -> str:
@@ -1039,6 +1049,32 @@ def _build_task_example(answers: dict[str, str]) -> str:
     if "sales" in context.lower():
         return "I need a practical plan for how to improve the quality of sales candidates entering the funnel."
     return "I need a specific action plan for the outcome I want to achieve."
+
+
+def _build_task_specific_who_example(*, task: str, context: str) -> str:
+    role = _task_specific_role_label(task=task, context=context)
+    return f"You are an experienced {role} helping me {task}."
+
+
+def _task_specific_role_label(*, task: str, context: str) -> str:
+    lowered = f"{task} {context}".lower()
+    if any(token in lowered for token in ("ram", "simm", "supplier", "procurement", "source", "inventory", "part number", "distributor")):
+        return "discrete parts sourcing specialist"
+    if any(token in lowered for token in ("prompt", "llm", "ai prompt", "rewrite prompt", "prompt quality")):
+        return "AI prompt strategist"
+    if any(token in lowered for token in ("sales", "pipeline", "close rate", "prospect")):
+        return "sales operations strategist"
+    if any(token in lowered for token in ("customer success", "churn", "renewal", "account management")):
+        return "customer success strategist"
+    if any(token in lowered for token in ("finance", "budget", "forecast", "pricing", "cost")):
+        return "financial planning analyst"
+    if any(token in lowered for token in ("compare", "analysis", "report", "research", "evaluate")):
+        return "research analyst"
+    if any(token in lowered for token in ("explain", "teach", "lesson", "book report", "student")):
+        return "teacher"
+    if any(token in lowered for token in ("email", "message", "reply", "communication")):
+        return "communications advisor"
+    return "domain specialist"
 
 
 def _build_context_example(answers: dict[str, str]) -> str:
@@ -2254,10 +2290,11 @@ def _who_refinement_options(answers: dict[str, str]) -> list[str]:
             f"Who: You are a talent acquisition leader focused on reducing unqualified applicants for a {role} opening.",
             f"Who: You are a recruiting operations advisor helping me tighten selection criteria for a {role} role.",
         ]
+    task_role = _task_specific_role_label(task=task, context=context)
     return [
-        f"Who: You are an experienced subject-matter expert helping me {task}.",
-        f"Who: You are a practical advisor focused on helping me {task}.",
-        f"Who: You are a clear, trustworthy specialist who can {task}.",
+        f"Who: You are an experienced {task_role} helping me {task}.",
+        f"Who: You are a practical {task_role} focused on helping me {task}.",
+        f"Who: You are a clear, trustworthy {task_role} who can help me {task}.",
     ]
 
 
