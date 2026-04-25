@@ -129,7 +129,12 @@ class GuideMeService:
             elif current_step == "refine":
                 refinement_text = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
                 answers["refinements"] = refinement_text
-                answers = _apply_refinement_updates(answers, refinement_text)
+                answers = await self._apply_refinement_answer_updates(
+                    answers=answers,
+                    answer=answer,
+                    refinement_text=refinement_text,
+                    personalization=guide_session.personalization or {},
+                )
                 final_prompt = await self._generate_final_prompt(
                     answers=answers,
                     personalization=guide_session.personalization or {},
@@ -479,6 +484,44 @@ class GuideMeService:
             return extracted or fallback
         except Exception:
             return fallback
+
+    async def _apply_refinement_answer_updates(
+        self,
+        *,
+        answers: dict[str, str],
+        answer: str,
+        refinement_text: str,
+        personalization: dict,
+    ) -> dict[str, str]:
+        updated = _apply_refinement_updates(answers, refinement_text)
+        if _extract_labeled_answers(refinement_text):
+            updated["refinements"] = ""
+            return _harmonize_prompt_answers(updated)
+        target_field = str(updated.get("_target_field") or "").strip()
+        extraction_step = _field_to_step(target_field) if target_field in {"who", "task", "context", "output"} else "why"
+        extracted_updates = await self._extract_answer_updates(
+            current_step=extraction_step,
+            answer=refinement_text,
+            answers=updated,
+            personalization=personalization,
+        )
+        if extraction_step != "why":
+            extracted_updates.pop("instructions", None)
+        extracted_updates = _ensure_step_field_capture(
+            current_step=extraction_step,
+            answer=refinement_text,
+            updates=extracted_updates,
+        )
+        updated = _merge_answer_updates(updated, extracted_updates)
+        updated = _apply_primary_step_answer(
+            current_step=extraction_step,
+            answer=refinement_text,
+            answers=updated,
+        )
+        if target_field in {"who", "task", "context", "output"} and not str(updated.get(target_field) or "").strip():
+            updated[target_field] = refinement_text.strip()
+        updated["refinements"] = ""
+        return updated
 
     async def _analyze_source_prompt(
         self,
@@ -1842,6 +1885,9 @@ def _is_perfect_score(score: dict | None) -> bool:
 def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
     normalized = answer.strip()
     if not options:
+        return normalized
+
+    if not re.fullmatch(r"[\d,\s]+", normalized):
         return normalized
 
     selected: list[str] = []

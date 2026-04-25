@@ -285,6 +285,43 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(updated.ready_to_insert)
         self.assertIn(option, updated.final_prompt or "")
 
+    async def test_freeform_refinement_is_applied_to_the_target_field(self) -> None:
+        source_prompt = (
+            "Who: You are an experienced recruiting strategist helping me improve hiring quality for a Customer Success Manager position role.\n\n"
+            "Task: Reduce the number of unqualified candidates applying for the Customer Success Manager position\n\n"
+            "Context: Our current job postings for the Customer Success Manager position are attracting a high volume of applicants who do not meet the minimum requirements.\n\n"
+            "Output: Format your response with clear section headers and three numbered actions."
+        )
+        start = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_freeform_refine",
+                source_prompt=source_prompt,
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+        session = start.session
+        assert session is not None
+        self.assertEqual(session.current_step, "refine")
+        self.assertEqual(session.decision_trace.get("target_field"), "context")
+
+        freeform_refinement = (
+            "Context: The role supports mid-market B2B SaaS customers and requires renewal ownership, "
+            "cross-functional stakeholder management, and 3+ years of post-sale account management experience."
+        )
+        refined = await self.service.respond(
+            GuideMeRespondRequest(
+                conversation_id="conv_freeform_refine",
+                answer=freeform_refinement,
+            ),
+            user=self.user,
+        )
+
+        updated = refined.session
+        assert updated is not None
+        self.assertIn("renewal ownership", updated.final_prompt or "")
+        self.assertIn("stakeholder management", updated.final_prompt or "")
+
 
 if __name__ == "__main__":
     unittest.main()
