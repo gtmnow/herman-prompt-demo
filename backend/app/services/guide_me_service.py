@@ -49,6 +49,8 @@ class GuideMeService:
         initial_step = source_analysis.get("current_step", "intro")
         initial_guidance = source_analysis.get("guidance_text", "")
         initial_options = source_analysis.get("refinement_options", [])
+        initial_final_prompt = source_analysis.get("final_prompt", "")
+        initial_status = "complete" if initial_step == "complete" and initial_final_prompt else "active"
 
         session = get_session()
         try:
@@ -66,13 +68,13 @@ class GuideMeService:
             guide_session = GuideMeSession(
                 conversation_id=payload.conversation_id,
                 user_id_hash=user.user_id_hash,
-                status="active",
+                status=initial_status,
                 current_step=initial_step,
                 answers=initial_answers,
                 personalization=personalization,
                 guidance_text=initial_guidance,
                 follow_up_questions=initial_options,
-                final_prompt="",
+                final_prompt=initial_final_prompt,
             )
             session.add(guide_session)
             session.commit()
@@ -121,7 +123,9 @@ class GuideMeService:
             elif guide_session.current_step in {"who", "why", "how", "what"}:
                 pass
             elif guide_session.current_step == "refine":
-                answers["refinements"] = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
+                refinement_text = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
+                answers["refinements"] = refinement_text
+                answers = _apply_refinement_updates(answers, refinement_text)
                 final_prompt = await self._generate_final_prompt(
                     answers=answers,
                     personalization=guide_session.personalization or {},
@@ -147,25 +151,15 @@ class GuideMeService:
                     answers["task"] = answer
 
                 if _required_sections_complete(answers):
-                    guidance_text, follow_up_questions = await self._generate_refinement(
+                    final_prompt = await self._generate_final_prompt(
                         answers=answers,
                         personalization=guide_session.personalization or {},
                     )
-                    if follow_up_questions:
-                        guide_session.guidance_text = guidance_text
-                        guide_session.follow_up_questions = follow_up_questions
-                        guide_session.current_step = "refine"
-                        guide_session.status = "active"
-                    else:
-                        final_prompt = await self._generate_final_prompt(
-                            answers=answers,
-                            personalization=guide_session.personalization or {},
-                        )
-                        await self._apply_validation_result(
-                            guide_session=guide_session,
-                            answers=answers,
-                            final_prompt=final_prompt,
-                        )
+                    await self._apply_validation_result(
+                        guide_session=guide_session,
+                        answers=answers,
+                        final_prompt=final_prompt,
+                    )
                 else:
                     next_step = _next_collection_step(answers)
                     guide_session.current_step = next_step
@@ -304,24 +298,6 @@ class GuideMeService:
         elif conversation.user_id_hash != user.user_id_hash:
             raise ValueError("Conversation not found.")
 
-    async def _generate_refinement(self, *, answers: dict[str, str], personalization: dict) -> tuple[str, list[str]]:
-        fallback_guidance = _build_guidance_text(answers)
-        fallback_questions = _derive_refinement_options(answers)
-
-        try:
-            prompt = _build_refinement_prompt(answers=answers, personalization=personalization)
-            response_text = await self.llm_client.generate_text(prompt=prompt)
-            parsed = _extract_json_object(response_text)
-            guidance = str(parsed.get("guidance_text") or "").strip() or fallback_guidance
-            raw_questions = parsed.get("refinement_options") or parsed.get("follow_up_questions")
-            if isinstance(raw_questions, list):
-                follow_up_questions = [str(item).strip() for item in raw_questions if str(item).strip()][:5]
-            else:
-                follow_up_questions = fallback_questions
-            return guidance, follow_up_questions
-        except Exception:
-            return fallback_guidance, fallback_questions
-
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
         return _compose_final_prompt(answers)
 
@@ -381,6 +357,11 @@ class GuideMeService:
                 enforcement_level=enforcement_level,
             )
             failing_field = _first_failing_requirement(transformed.get("conversation"))
+            score = await self.transformer_client.fetch_conversation_score(
+                conversation_id=conversation_id,
+                user_id=user.user_id_hash,
+            )
+            target_field = failing_field or _select_target_field_for_refinement(answers=answers, score=score)
             if failing_field:
                 answers["_target_field"] = failing_field
                 current_step = _field_to_step(failing_field)
@@ -391,6 +372,31 @@ class GuideMeService:
                     "guidance_text": guidance_text,
                     "refinement_options": [],
                 }
+            if _required_sections_complete(answers):
+                if _is_perfect_score(score):
+                    return {
+                        "answers": answers,
+                        "current_step": "complete",
+                        "guidance_text": "",
+                        "refinement_options": [],
+                        "final_prompt": _compose_final_prompt(answers),
+                    }
+                if target_field:
+                    answers["_target_field"] = target_field
+                    guidance_text = _build_refinement_guidance(
+                        field=target_field,
+                        answers=answers,
+                        score=score,
+                    )
+                    return {
+                        "answers": answers,
+                        "current_step": "refine",
+                        "guidance_text": guidance_text,
+                        "refinement_options": _derive_refinement_options(
+                            field=target_field,
+                            answers=answers,
+                        ),
+                    }
         except Exception:
             pass
 
@@ -406,13 +412,14 @@ class GuideMeService:
             guide_session.follow_up_questions = []
             return
 
-        failing_field = validation["failing_field"]
-        if failing_field:
-            guide_session.current_step = _field_to_step(failing_field)
+        target_field = validation["target_field"]
+        if target_field:
+            answers["_target_field"] = target_field
+        guide_session.current_step = "refine"
         guide_session.status = "active"
         guide_session.final_prompt = ""
         guide_session.guidance_text = validation["guidance_text"]
-        guide_session.follow_up_questions = []
+        guide_session.follow_up_questions = validation["refinement_options"]
 
     async def _validate_compiled_prompt(self, *, guide_session: GuideMeSession, final_prompt: str) -> dict[str, object]:
         answers = guide_session.answers or {}
@@ -429,19 +436,32 @@ class GuideMeService:
                 enforcement_level=enforcement_level,
             )
         except Exception:
-            return {"passes": True, "failing_field": None, "guidance_text": ""}
+            return {
+                "passes": True,
+                "failing_field": None,
+                "target_field": None,
+                "guidance_text": "",
+                "refinement_options": [],
+            }
 
         failing_field = _first_failing_requirement(transformed.get("conversation"))
         score = await self.transformer_client.fetch_conversation_score(
             conversation_id=guide_session.conversation_id,
             user_id=guide_session.user_id_hash,
         )
+        target_field = failing_field or _select_target_field_for_refinement(answers=answers, score=score)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         return {
             "passes": passes,
             "failing_field": failing_field,
-            "guidance_text": _build_field_guidance(failing_field) if failing_field else _build_score_guidance(score),
+            "target_field": target_field,
+            "guidance_text": _build_refinement_guidance(
+                field=target_field,
+                answers=answers,
+                score=score,
+            ),
+            "refinement_options": _derive_refinement_options(field=target_field, answers=answers),
         }
 
 
@@ -485,8 +505,8 @@ def _question_for_session(
     if current_step == "refine":
         numbered = "\n".join(f"{index + 1}. {question}" for index, question in enumerate(follow_up_questions))
         question_text = (
-            f"{personalization.first_name}, I have several suggestions that will further improve your prompt. "
-            "Which of these would you like to use? Reply with the numbers you want, or describe your preference.\n\n"
+            f"{personalization.first_name}, {guidance_text or 'I have several suggestions that will improve your prompt.'} "
+            "Here are some examples you can use. Reply with the numbers you want, or enter your own refinement now.\n\n"
             f"{numbered}"
         )
         return ("Refine Prompt", question_text.strip())
@@ -535,34 +555,6 @@ def _infer_typical_ai_usage(recent_prompts: list[str]) -> str:
     return "get structured help on high-value work"
 
 
-def _build_guidance_text(answers: dict[str, str]) -> str:
-    suggestions: list[str] = []
-    if len(answers.get("who", "").split()) < 6:
-        suggestions.append("Add a bit more detail to the role and objective.")
-    if len(answers.get("instructions", "").split()) < 8:
-        suggestions.append("Include a few clearer task rules or guardrails.")
-    if len(answers.get("context", "").split()) < 10:
-        suggestions.append("Add more context so the response can be better grounded.")
-    if len(answers.get("output", "").split()) < 6:
-        suggestions.append(
-            "Be more specific about the final format. Example: Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language."
-        )
-    return " ".join(suggestions[:3]) or "This is already strong. A few quick refinements could make the final prompt even sharper."
-
-
-def _derive_refinement_options(answers: dict[str, str]) -> list[str]:
-    questions: list[str] = []
-    if len(answers.get("task", "").split()) < 6:
-        questions.append("Clarify the main outcome or decision the answer should support.")
-    if len(answers.get("instructions", "").split()) < 10:
-        questions.append("Add explicit constraints, preferences, or things the response should avoid.")
-    if len(answers.get("context", "").split()) < 12:
-        questions.append("Add more audience or background context so the answer fits the situation better.")
-    if len(answers.get("output", "").split()) < 8:
-        questions.append("Specify the exact format, length, and structure for the final response.")
-    return questions[:4]
-
-
 def _compose_final_prompt(answers: dict[str, str]) -> str:
     refinements = answers.get("refinements", "").strip()
     who = answers.get("who", "").strip()
@@ -603,17 +595,6 @@ def _build_who_example(personalization: GuideMePersonalization, answers: dict[st
 def _build_why_example(personalization: GuideMePersonalization, answers: dict[str, str]) -> str:
     task = answers.get("task") or personalization.typical_ai_usage
     return f"Give me practical, direct guidance for {task}. Do not include sensitive or confidential information."
-
-
-def _build_refinement_prompt(*, answers: dict[str, str], personalization: dict) -> str:
-    return (
-        "You are refining a guided prompt builder. "
-        "Return strict JSON with keys guidance_text and refinement_options. "
-        "Keep guidance under 2 short sentences. Provide no more than 5 short refinement options phrased as direct improvements, not questions. "
-        "Personalize tone using the supplied profile context. "
-        f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
-        f"Prompt draft fields: {json.dumps(answers, ensure_ascii=True)}"
-    )
 
 
 def _build_answer_extraction_prompt(
@@ -711,9 +692,10 @@ def _extract_labeled_answers(source_prompt: str) -> dict[str, str]:
         "task": "Task:",
         "context": "Context:",
         "output": "Output:",
+        "instructions": "Additional Information:",
     }
     for key, label in labels.items():
-        pattern = rf"{label}\s*(.*?)(?=\n(?:Who:|Task:|Context:|Output:)|\Z)"
+        pattern = rf"{label}\s*(.*?)(?=\n(?:Who:|Task:|Context:|Output:|Additional Information:)|\Z)"
         match = re.search(pattern, source_prompt, flags=re.IGNORECASE | re.DOTALL)
         if match:
             answer_map[key] = match.group(1).strip()
@@ -753,12 +735,13 @@ def _build_field_guidance(field: str | None) -> str:
 
 def _build_score_guidance(score: dict | None) -> str:
     if not score:
-        return ""
+        return "I found one area that still needs to be stronger before this prompt is ready."
     final_score = score.get("final_score")
     final_llm_score = score.get("final_llm_score")
+    llm_suffix = f" and {final_llm_score}/100 from the LLM review" if final_llm_score is not None else ""
     return (
-        "Your prompt now passes the required sections, but it still needs more precision to reach 100/100. "
-        f"Current score: {final_score}/{final_llm_score}. Add clearer constraints, context, and output detail."
+        "Your prompt now passes the required labeled sections, but one area is still too weak to reach a perfect score. "
+        f"It is currently scoring {final_score}/100{llm_suffix}."
     )
 
 
@@ -788,3 +771,159 @@ def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
             seen.add(index)
 
     return "\n".join(selected) if selected else normalized
+
+
+def _select_target_field_for_refinement(*, answers: dict[str, str], score: dict | None) -> str | None:
+    heuristics = [
+        ("output", _field_strength_score("output", answers)),
+        ("context", _field_strength_score("context", answers)),
+        ("who", _field_strength_score("who", answers)),
+        ("task", _field_strength_score("task", answers)),
+    ]
+    weakest_field, weakest_score = min(heuristics, key=lambda item: item[1])
+    if weakest_score < 4:
+        return weakest_field
+    if not _is_perfect_score(score):
+        return weakest_field
+    return None
+
+
+def _field_strength_score(field: str, answers: dict[str, str]) -> int:
+    value = (answers.get(field) or "").strip()
+    if not value:
+        return 0
+
+    score = 1
+    word_count = len(value.split())
+    if word_count >= 5:
+        score += 1
+    if word_count >= 10:
+        score += 1
+    if field == "output" and any(token in value.lower() for token in ("bullet", "summary", "table", "paragraph", "heading", "format")):
+        score += 1
+    if field == "context" and any(token in value.lower() for token in ("audience", "for ", "because", "book report", "briefing", "presentation")):
+        score += 1
+    if field == "who" and any(token in value.lower() for token in ("you are", "act as", "advisor", "expert", "attorney", "historian")):
+        score += 1
+    if field == "task" and any(token in value.lower() for token in ("explain", "create", "draft", "analyze", "compare", "summarize")):
+        score += 1
+    return score
+
+
+def _build_refinement_guidance(*, field: str | None, answers: dict[str, str], score: dict | None) -> str:
+    if field == "who":
+        return (
+            "I have several suggestions that will improve the Who section of your prompt. "
+            "To improve your results, name the exact expert, perspective, or voice you want me to use."
+        )
+    if field == "task":
+        return (
+            "I have several suggestions that will improve the Task section of your prompt. "
+            "To improve your results, clearly state the job to be done and the outcome you want."
+        )
+    if field == "context":
+        return (
+            "I have several suggestions that will improve the Context section of your prompt. "
+            "To improve your results, add audience, situation, and any constraints that shape the answer."
+        )
+    if field == "output":
+        return (
+            "I have several suggestions that will improve the Output section of your prompt. "
+            "To improve your output results, ask for specific, actionable formatting and structure instead of unclear delivery instructions."
+        )
+    return _build_score_guidance(score)
+
+
+def _derive_refinement_options(*, field: str | None, answers: dict[str, str]) -> list[str]:
+    if field == "who":
+        return _who_refinement_options(answers)
+    if field == "task":
+        return _task_refinement_options(answers)
+    if field == "context":
+        return _context_refinement_options(answers)
+    return _output_refinement_options(answers)
+
+
+def _who_refinement_options(answers: dict[str, str]) -> list[str]:
+    task = (answers.get("task") or "help with this request").strip().rstrip(".")
+    context = (answers.get("context") or "").lower()
+    if "will" in context or "estate" in context:
+        return [
+            "Who: You are an experienced estate planning attorney who explains legal concepts in plain English.",
+            "Who: You are a U.S. wills and estates lawyer focused on practical, easy-to-follow guidance.",
+            "Who: You are a patient legal advisor helping a non-lawyer understand how wills work.",
+        ]
+    if "book report" in context or "10-year-old" in context:
+        return [
+            "Who: You are a U.S. historian who explains important people and events in kid-friendly language.",
+            "Who: You are an elementary school history teacher making complex ideas simple and engaging.",
+            "Who: You are a historian writing for a 10-year-old who needs clear, accurate explanations.",
+        ]
+    return [
+        f"Who: You are an experienced subject-matter expert helping me {task}.",
+        f"Who: You are a practical advisor focused on helping me {task}.",
+        f"Who: You are a clear, trustworthy specialist who can {task}.",
+    ]
+
+
+def _task_refinement_options(answers: dict[str, str]) -> list[str]:
+    task = (answers.get("task") or "help with this request").strip().rstrip(".")
+    context = (answers.get("context") or "").strip()
+    if context:
+        return [
+            f"Task: {task}. Focus on the most useful points for this situation: {context}",
+            f"Task: {task}. Keep the response focused on the specific need described in the context.",
+            f"Task: {task}. Prioritize the information that will be most helpful for the audience and setting described below.",
+        ]
+    return [
+        f"Task: {task}. Be specific about the main outcome I need.",
+        f"Task: {task}. Focus on the most important points and avoid unnecessary detail.",
+        f"Task: {task}. Explain the topic clearly and make the result immediately usable.",
+    ]
+
+
+def _context_refinement_options(answers: dict[str, str]) -> list[str]:
+    task = (answers.get("task") or "this request").strip().rstrip(".")
+    return [
+        f"Context: This answer is for a specific audience, so tailor it to their level of knowledge and keep it focused on {task}.",
+        "Context: Include the audience, setting, and why this answer is needed so the response can be better tailored.",
+        "Context: Keep the answer grounded in the user's situation, constraints, and intended use.",
+    ]
+
+
+def _output_refinement_options(answers: dict[str, str]) -> list[str]:
+    context = (answers.get("context") or "").lower()
+    if "10-year-old" in context or "book report" in context:
+        return [
+            "Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.",
+            "Output: Write 2 short paragraphs in simple language, then add 4 bullet points with the most important facts.",
+            "Output: Give me a kid-friendly summary in this chat with bold headings and a short bullet list of key takeaways.",
+        ]
+    return [
+        "Output: Respond in this chat with a short summary followed by 4 to 5 actionable bullet points.",
+        "Output: Format the response as a concise report with bold section headings and clear next steps.",
+        "Output: Provide a plain-language explanation, then a bullet list of key takeaways, then recommended actions.",
+    ]
+
+
+def _apply_refinement_updates(answers: dict[str, str], refinement_text: str) -> dict[str, str]:
+    updated = dict(answers)
+    labeled_updates = _extract_labeled_answers(refinement_text)
+    consumed_keys = set()
+    for key in ("who", "task", "context", "output", "instructions"):
+        value = (labeled_updates.get(key) or "").strip()
+        if value:
+            updated[key] = value
+            consumed_keys.add(key)
+
+    if consumed_keys:
+        updated["refinements"] = ""
+        return updated
+
+    target_field = str(updated.get("_target_field") or "").strip()
+    if target_field in {"who", "task", "context", "output"}:
+        updated[target_field] = refinement_text.strip()
+        updated["refinements"] = ""
+    elif refinement_text.strip():
+        updated["instructions"] = _merge_sections(updated.get("instructions", ""), refinement_text.strip())
+    return updated

@@ -43,6 +43,32 @@ docs/        technical specs, PRD-derived notes, engineering docs
    - optional generated images
    - metadata about transformer and LLM behavior
 
+## Guide Me Design
+
+Guide Me is the coaching wizard used to repair or construct prompts that satisfy Prompt Transformer requirements.
+
+Its intended behavior is:
+
+1. Ingest the user's current prompt when launched from the composer, coaching card, or feedback flow
+2. Parse any labeled sections already present
+3. Validate the prompt against Prompt Transformer
+4. Ask only for the information needed to strengthen the weakest or failing section
+5. Merge user answers into the prompt semantically, even when one answer supplies multiple sections
+6. Build the final prompt using explicit labels required by full enforcement mode:
+   - `Who:`
+   - `Task:`
+   - `Context:`
+   - `Output:`
+   - `Additional Information:`
+7. Revalidate the compiled prompt before marking the wizard complete
+
+Important rules:
+
+- `Refine` must only appear when there is a concrete weak area or score gap to fix.
+- Refinement suggestions must be tied to the weak field.
+- Refinement suggestions must be prompt-ready content, not user-facing advice.
+- The completion target is a validated prompt that can reach `100/100` when transformer and LLM scoring are available.
+
 ### Provider Abstraction
 
 Provider-specific behavior lives under `backend/app/services/providers/`.

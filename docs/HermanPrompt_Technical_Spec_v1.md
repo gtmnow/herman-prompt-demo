@@ -104,6 +104,58 @@ These are explicitly planned after the MVP foundation is stable:
 - persistent conversation history
 - attachment support
 
+### Guide Me coaching flow
+
+Guide Me is a guided prompt-construction and repair flow, not a freeform coaching chat.
+
+Its purpose is to help the user assemble a prompt that passes Prompt Transformer requirements and is strong enough to target a `100/100` validated result.
+
+Guide Me should:
+
+1. ingest the user's current prompt when available
+2. parse existing labeled fields already present in that prompt
+3. validate the prompt against Prompt Transformer
+4. identify the weakest or failing element first
+5. ask targeted questions to improve only what is still missing or weak
+6. merge each user answer across all relevant prompt sections
+7. compile a final labeled prompt
+8. revalidate the compiled prompt before completion
+
+#### Guide Me step model
+
+- `Intro`
+  Purpose: confirm whether the user's typical use matches today's need
+- `Describe Need`
+  Purpose: capture today's task if the intro answer is no
+- `Who`
+  Purpose: define the role or persona
+- `Why`
+  Purpose: gather instructions, guardrails, and preferences
+- `How`
+  Purpose: gather context and background
+- `What`
+  Purpose: define delivery format and structure
+- `Refine`
+  Purpose: repair a specific weak section or score gap using prompt-ready examples only
+- `Complete`
+  Purpose: present a validated compiled prompt for insertion into the composer
+
+#### Final prompt format
+
+In full enforcement mode, Guide Me must output explicitly labeled sections:
+
+- `Who:`
+- `Task:`
+- `Context:`
+- `Output:`
+- `Additional Information:`
+
+#### Refinement rules
+
+- Refinement must be tied to the currently weak element or explicit scoring gap.
+- Refinement options must be phrased as prompt-ready text that can be inserted directly into the final prompt.
+- Refinement must not repeat as a generic polish loop once the actual weak area has been addressed.
+
 ## 5. Technical Decisions
 
 ### Frontend

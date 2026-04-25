@@ -106,6 +106,40 @@ Important caveat:
 - local development still uses SQLite unless `DATABASE_URL` is explicitly set
 - Railway should use PostgreSQL for persistent history
 
+### `backend/app/services/guide_me_service.py`
+
+This service owns the Guide Me wizard.
+
+Guide Me is not a generic Q&A flow. It is a prompt-repair and prompt-construction flow whose job is to produce a prompt that:
+
+- satisfies Prompt Transformer structural requirements
+- uses explicit labeled sections in full enforcement mode
+- aims for a validated `100/100` outcome when transformer and LLM scores are available
+
+Current intended behavior:
+
+1. Start from the user's current prompt when available
+2. Parse any existing labeled sections already present
+3. Validate the prompt against Prompt Transformer
+4. Detect the weakest or failing section first
+5. Ask only for information that improves that weak section
+6. Merge user answers semantically across sections instead of binding one answer to one step
+7. Build a final prompt using labeled sections:
+   - `Who:`
+   - `Task:`
+   - `Context:`
+   - `Output:`
+   - `Additional Information:`
+8. Revalidate the compiled prompt before presenting it as complete
+
+Important implementation rules:
+
+- One user answer may populate multiple sections if the answer clearly contains that information.
+- `Refine` is a targeted repair step, not a generic polish step.
+- Refinement suggestions must be tied to the currently weak field or score gap.
+- Refinement suggestions must be prompt-ready text, not advice phrased to the user.
+- If the prompt already passes structure but is still below target score, refinement must explain the score-specific gap rather than repeat generic suggestions.
+
 ## Frontend Walkthrough
 
 ### `frontend/src/App.tsx`
