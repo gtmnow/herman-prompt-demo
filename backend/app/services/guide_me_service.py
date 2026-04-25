@@ -510,10 +510,11 @@ def _question_for_session(
             f"Hi {personalization.first_name}, I assume you typically want to {personalization.typical_ai_usage}. Is this what you need today, Yes or No?",
         )
     if current_step == "describe_need":
+        example = _build_task_example(answers)
         return (
             "Today’s Need",
             _question_prefix(field="task", answers=answers)
-            + "Please describe what you need today."
+            + f'Please describe what you need today, such as "{example}"'
         )
     if current_step == "who":
         example = _build_who_example(personalization, answers)
@@ -670,6 +671,16 @@ def _build_output_example(answers: dict[str, str]) -> str:
     return f"Respond in this chat with {format_hint} about {task}."
 
 
+def _build_task_example(answers: dict[str, str]) -> str:
+    context = _clean_sentence_fragment(answers.get("context") or "")
+    who = _clean_sentence_fragment(answers.get("who") or "")
+    if "applicant" in context.lower() or "candidate" in context.lower() or "recruit" in who.lower():
+        return "I need a clear action plan for how to reduce the number of unqualified applicants."
+    if "sales" in context.lower():
+        return "I need a practical plan for how to improve the quality of sales candidates entering the funnel."
+    return "I need a specific action plan for the outcome I want to achieve."
+
+
 def _build_context_example(answers: dict[str, str]) -> str:
     task = _clean_sentence_fragment(answers.get("task") or "this request")
     output = _clean_sentence_fragment(answers.get("output") or "")
@@ -765,6 +776,9 @@ def _merge_answer_updates(answers: dict[str, str], updates: dict[str, str]) -> d
             continue
         current = str(merged.get(key) or "").strip()
         if not current:
+            merged[key] = cleaned
+            continue
+        if key == "task" and _task_specificity_score(cleaned) > _task_specificity_score(current):
             merged[key] = cleaned
             continue
         if cleaned.casefold() in current.casefold():
@@ -1000,7 +1014,27 @@ def _field_strength_score(field: str, answers: dict[str, str]) -> int:
         score += 1
     if field == "who" and any(token in value.lower() for token in ("you are", "act as", "advisor", "expert", "attorney", "historian")):
         score += 1
-    if field == "task" and any(token in value.lower() for token in ("explain", "create", "draft", "analyze", "compare", "summarize")):
+    if field == "task" and any(
+        token in value.lower()
+        for token in (
+            "explain",
+            "create",
+            "draft",
+            "analyze",
+            "compare",
+            "summarize",
+            "plan",
+            "action plan",
+            "reduce",
+            "increase",
+            "improve",
+            "recommend",
+            "identify",
+            "build",
+            "develop",
+            "optimize",
+        )
+    ):
         score += 1
     return score
 
@@ -1016,6 +1050,29 @@ def _field_score_out_of_25(field: str, answers: dict[str, str]) -> int:
     if strength == 3:
         return 20
     return 25
+
+
+def _task_specificity_score(value: str) -> int:
+    lowered = value.lower()
+    score = len(value.split())
+    if any(
+        token in lowered
+        for token in (
+            "action plan",
+            "reduce",
+            "increase",
+            "improve",
+            "recommend",
+            "identify",
+            "build",
+            "develop",
+            "optimize",
+        )
+    ):
+        score += 10
+    if any(token in lowered for token in ("for how to", "so that", "in order to")):
+        score += 5
+    return score
 
 
 def _build_refinement_guidance(*, field: str | None, answers: dict[str, str], score: dict | None) -> str:
