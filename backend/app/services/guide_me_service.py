@@ -641,10 +641,17 @@ def _infer_typical_ai_usage(recent_prompts: list[str]) -> str:
 
 def _compose_final_prompt(answers: dict[str, str]) -> str:
     refinements = answers.get("refinements", "").strip()
-    who = answers.get("who", "").strip()
-    task = answers.get("task", "").strip()
     context = answers.get("context", "").strip()
-    output = answers.get("output", "").strip()
+    raw_task = answers.get("task", "").strip()
+    task = _derive_task_from_context(raw_task, context)
+    who = _normalize_who_text(answers.get("who", "").strip(), raw_task=raw_task, normalized_task=task, context=context)
+    output = _normalize_output_text(
+        answers.get("output", "").strip(),
+        raw_task=raw_task,
+        normalized_task=task,
+        context=context,
+    )
+    context = answers.get("context", "").strip()
     instructions = answers.get("instructions", "").strip()
     additional_information = _merge_sections(instructions, refinements)
 
@@ -824,7 +831,7 @@ def _merge_answer_updates(answers: dict[str, str], updates: dict[str, str]) -> d
             merged[key] = cleaned
             continue
         merged[key] = _combine_section_values(key=key, current=current, new_value=cleaned)
-    return merged
+    return _harmonize_prompt_answers(merged)
 
 
 def _next_collection_step(answers: dict[str, str]) -> str:
@@ -1206,6 +1213,172 @@ def _task_specificity_score(value: str) -> int:
     if any(token in lowered for token in ("for how to", "so that", "in order to")):
         score += 5
     return score
+
+
+def _harmonize_prompt_answers(answers: dict[str, str]) -> dict[str, str]:
+    updated = dict(answers)
+    raw_task = str(updated.get("task") or "").strip()
+    context = str(updated.get("context") or "").strip()
+    if raw_task and context:
+        normalized_task = _derive_task_from_context(raw_task, context)
+        if normalized_task and normalized_task != raw_task and _task_should_be_replaced(raw_task, normalized_task):
+            updated["task"] = normalized_task
+            updated["who"] = _normalize_who_text(
+                str(updated.get("who") or "").strip(),
+                raw_task=raw_task,
+                normalized_task=normalized_task,
+                context=context,
+            )
+            updated["output"] = _normalize_output_text(
+                str(updated.get("output") or "").strip(),
+                raw_task=raw_task,
+                normalized_task=normalized_task,
+                context=context,
+            )
+    return updated
+
+
+def _derive_task_from_context(task: str, context: str) -> str:
+    task_clean = " ".join(task.split()).strip().rstrip(".")
+    context_clean = " ".join(context.split()).strip().rstrip(".")
+    if not task_clean or not context_clean:
+        return task_clean
+    if not _is_generic_subject_task(task_clean):
+        return task_clean
+
+    lowered_context = context_clean.lower()
+    role_phrase = _extract_role_phrase_from_context(context_clean)
+
+    if any(token in lowered_context for token in ("unqualified applicants", "unqualified candidates")):
+        target = f" for {role_phrase}" if role_phrase else ""
+        return f"Reduce the number of unqualified applicants{target}".strip()
+    if "churn" in lowered_context:
+        return "Reduce customer churn"
+    if "close rate" in lowered_context or "conversion rate" in lowered_context:
+        return "Improve close rates"
+    if "time to hire" in lowered_context:
+        return "Reduce time to hire"
+    if any(token in lowered_context for token in ("candidate quality", "quality of candidates", "quality candidates")):
+        target = f" for {role_phrase}" if role_phrase else ""
+        return f"Improve candidate quality{target}".strip()
+    if any(token in lowered_context for token in ("screening", "screen candidates", "screening process")):
+        target = f" for {role_phrase}" if role_phrase else ""
+        return f"Improve screening for {role_phrase}".strip() if role_phrase else "Improve candidate screening"
+    return task_clean
+
+
+def _is_generic_subject_task(task: str) -> bool:
+    lowered = task.lower().strip()
+    if any(
+        token in lowered
+        for token in (
+            "reduce",
+            "increase",
+            "improve",
+            "decrease",
+            "optimize",
+            "prevent",
+            "avoid",
+            "clarify",
+            "compare",
+            "screen",
+            "filter",
+            "prioritize",
+            "fix",
+            "solve",
+            "prepare",
+            "draft",
+            "create",
+            "build",
+            "develop",
+        )
+    ):
+        return False
+    generic_starts = (
+        "hire ",
+        "write ",
+        "create ",
+        "build ",
+        "draft ",
+        "make ",
+        "help with ",
+        "help me with ",
+    )
+    return lowered.startswith(generic_starts) or len(lowered.split()) <= 5
+
+
+def _extract_role_phrase_from_context(context: str) -> str | None:
+    match = re.search(
+        r"for (?:the )?(.+?)(?: position| role)?(?:\.|,|$)",
+        context,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    role = " ".join(match.group(1).split()).strip()
+    return role or None
+
+
+def _task_should_be_replaced(raw_task: str, normalized_task: str) -> bool:
+    return _task_specificity_score(normalized_task) >= _task_specificity_score(raw_task)
+
+
+def _normalize_who_text(who: str, *, raw_task: str, normalized_task: str, context: str) -> str:
+    who_clean = who.strip()
+    if not who_clean:
+        return who_clean
+    normalized = who_clean
+    if raw_task and normalized_task and raw_task != normalized_task and raw_task in normalized:
+        normalized = normalized.replace(raw_task, normalized_task)
+    lowered_context = context.lower()
+    lowered_who = normalized.lower()
+    if (
+        any(token in lowered_context for token in ("applicant", "candidate", "hiring", "recruit"))
+        and "subject-matter expert" in lowered_who
+    ):
+        normalized = re.sub(
+            r"experienced subject-matter expert",
+            "experienced recruiting strategist",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    return normalized
+
+
+def _normalize_output_text(output: str, *, raw_task: str, normalized_task: str, context: str) -> str:
+    output_clean = output.strip()
+    if not output_clean:
+        return output_clean
+    normalized = output_clean
+    if raw_task and normalized_task and raw_task != normalized_task and raw_task in normalized:
+        normalized = normalized.replace(raw_task, normalized_task)
+    if (
+        "hiring a " in normalized.lower()
+        and any(token in context.lower() for token in ("unqualified applicants", "unqualified candidates"))
+        and normalized_task
+        and normalized_task not in normalized
+    ):
+        normalized = re.sub(
+            r"about hiring [^.]+",
+            f"about {_task_to_about_phrase(normalized_task)}",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    return normalized
+
+
+def _task_to_about_phrase(task: str) -> str:
+    cleaned = task.strip().rstrip(".")
+    lowered = cleaned.lower()
+    if lowered.startswith("reduce "):
+        return "reducing " + cleaned[7:].lower()
+    if lowered.startswith("increase "):
+        return "increasing " + cleaned[9:].lower()
+    if lowered.startswith("improve "):
+        return "improving " + cleaned[8:].lower()
+    if lowered.startswith("optimize "):
+        return "optimizing " + cleaned[9:].lower()
+    return cleaned.lower()
 
 
 def _build_refinement_guidance(*, field: str | None, requirements: dict[str, dict] | None, score: dict | None) -> str:
