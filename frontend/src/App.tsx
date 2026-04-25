@@ -298,6 +298,7 @@ export function App() {
 
     setGuideMeBusy(true);
     setGuideMeError(null);
+    setGuideMeOpen(true);
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/guide-me/start`, {
@@ -1121,6 +1122,7 @@ export function App() {
             disabled={loading}
             dragActive={dragActive}
             guideMeActive={guideMeOpen}
+            guideMeBusy={guideMeBusy}
             uploadError={uploadError}
             uploading={uploading}
             value={draft}

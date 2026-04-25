@@ -11,6 +11,7 @@ type ComposerProps = {
   disabled: boolean;
   dragActive: boolean;
   guideMeActive?: boolean;
+  guideMeBusy?: boolean;
   attachments: UploadedAttachment[];
   uploadError: string | null;
   uploading: boolean;
@@ -27,6 +28,7 @@ export function Composer({
   disabled,
   dragActive,
   guideMeActive = false,
+  guideMeBusy = false,
   attachments,
   uploadError,
   uploading,
@@ -116,11 +118,11 @@ export function Composer({
         <button
           aria-label="Open Guide Me"
           className={`guide-me-composer-button ${guideMeActive ? "is-active" : ""}`}
-          disabled={disabled || uploading}
+          disabled={disabled || uploading || guideMeBusy}
           type="button"
           onClick={() => onGuideMe(value)}
         >
-          Guide Me
+          {guideMeBusy ? "Opening..." : "Guide Me"}
         </button>
         <label className="attach-button" htmlFor="composer-file-input">
           <svg aria-hidden="true" className="attach-icon" viewBox="0 0 24 24">

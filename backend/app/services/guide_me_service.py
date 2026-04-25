@@ -111,24 +111,22 @@ class GuideMeService:
 
             answers = dict(guide_session.answers or {})
             normalized = answer.casefold()
+            current_step = guide_session.current_step
+            skip_extraction = False
 
-            if guide_session.current_step == "intro":
+            if current_step == "intro":
                 answers["intro_confirmation"] = answer
                 if _looks_like_yes(normalized):
                     if not answers.get("task"):
                         answers["task"] = str((guide_session.personalization or {}).get("typical_ai_usage") or "").strip()
                 else:
                     guide_session.current_step = "describe_need"
-                    guide_session.answers = answers
-                    guide_session.updated_at = datetime.utcnow()
-                    session.commit()
-                    session.refresh(guide_session)
-                    return GuideMeSessionResponse(session=self._serialize_session(guide_session))
-            elif guide_session.current_step == "describe_need":
+                    skip_extraction = True
+            elif current_step == "describe_need":
                 pass
-            elif guide_session.current_step in {"who", "why", "how", "what"}:
+            elif current_step in {"who", "why", "how", "what"}:
                 pass
-            elif guide_session.current_step == "refine":
+            elif current_step == "refine":
                 refinement_text = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
                 answers["refinements"] = refinement_text
                 answers = _apply_refinement_updates(answers, refinement_text)
@@ -144,35 +142,30 @@ class GuideMeService:
             else:
                 raise ValueError("Guide Me session is already complete.")
 
-            if guide_session.current_step != "refine":
-                extracted_updates = await self._extract_answer_updates(
-                    current_step=guide_session.current_step,
-                    answer=answer,
-                    answers=answers,
-                    personalization=guide_session.personalization or {},
-                )
-                answers = _merge_answer_updates(answers, extracted_updates)
-
-                if guide_session.current_step == "describe_need" and not answers.get("task"):
-                    answers["task"] = answer
-
-                if _required_sections_complete(answers):
-                    final_prompt = await self._generate_final_prompt(
+            if current_step != "refine":
+                if not skip_extraction:
+                    extracted_updates = await self._extract_answer_updates(
+                        current_step=current_step,
+                        answer=answer,
                         answers=answers,
                         personalization=guide_session.personalization or {},
                     )
-                    await self._apply_validation_result(
-                        guide_session=guide_session,
-                        answers=answers,
-                        final_prompt=final_prompt,
-                    )
-                else:
-                    next_step = _next_collection_step(answers)
-                    guide_session.current_step = next_step
-                    guide_session.status = "active"
-                    guide_session.guidance_text = ""
-                    guide_session.follow_up_questions = []
+                    answers = _merge_answer_updates(answers, extracted_updates)
 
+                    if current_step == "describe_need" and not answers.get("task"):
+                        answers["task"] = answer
+
+                final_prompt = await self._generate_final_prompt(
+                    answers=answers,
+                    personalization=guide_session.personalization or {},
+                )
+                await self._apply_validation_result(
+                    guide_session=guide_session,
+                    answers=answers,
+                    final_prompt=final_prompt,
+                )
+
+            guide_session.final_prompt = _compose_final_prompt(answers)
             guide_session.answers = answers
             guide_session.updated_at = datetime.utcnow()
             session.commit()
@@ -381,7 +374,13 @@ class GuideMeService:
         chat_context: str,
     ) -> dict:
         if not source_prompt:
-            return {"answers": {}, "current_step": "intro", "guidance_text": "", "refinement_options": []}
+            return {
+                "answers": {},
+                "current_step": "intro",
+                "guidance_text": "",
+                "refinement_options": [],
+                "final_prompt": "",
+            }
 
         answers = _extract_labeled_answers(source_prompt)
         answers["_source_prompt"] = source_prompt
@@ -425,9 +424,11 @@ class GuideMeService:
                     "current_step": current_step,
                     "guidance_text": "",
                     "refinement_options": [],
+                    "final_prompt": _compose_final_prompt(answers),
                 }
             if _required_sections_complete(answers):
                 if _is_perfect_score(score):
+                    answers["_source_prompt_already_perfect"] = "true"
                     return {
                         "answers": answers,
                         "current_step": "complete",
@@ -442,12 +443,19 @@ class GuideMeService:
                         "current_step": _field_to_step(target_field),
                         "guidance_text": "",
                         "refinement_options": [],
+                        "final_prompt": _compose_final_prompt(answers),
                     }
         except Exception:
             pass
 
         next_step = _next_collection_step(answers)
-        return {"answers": answers, "current_step": next_step, "guidance_text": "", "refinement_options": []}
+        return {
+            "answers": answers,
+            "current_step": next_step,
+            "guidance_text": "",
+            "refinement_options": [],
+            "final_prompt": _compose_final_prompt(answers),
+        }
 
     async def _apply_validation_result(self, *, guide_session: GuideMeSession, answers: dict[str, str], final_prompt: str) -> None:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
@@ -469,9 +477,9 @@ class GuideMeService:
             answers["_target_field"] = target_field
             guide_session.current_step = _field_to_step(target_field)
         else:
-            guide_session.current_step = "complete"
+            guide_session.current_step = _next_collection_step(answers)
         guide_session.status = "active"
-        guide_session.final_prompt = ""
+        guide_session.final_prompt = final_prompt
         guide_session.guidance_text = ""
         guide_session.follow_up_questions = []
 
@@ -578,6 +586,11 @@ def _question_for_session(
         )
         return ("Refine Prompt", question_text.strip())
     if current_step == "complete":
+        if str(answers.get("_source_prompt_already_perfect") or "").strip().lower() == "true":
+            return (
+                "Prompt Already Strong",
+                "Your current prompt already scores perfectly. Review it if you want, or click Restart to start over.",
+            )
         return ("Prompt Ready", "Your guided prompt is ready. Review it and send it back to the main composer when you’re ready.")
     return (None, None)
 

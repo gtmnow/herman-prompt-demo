@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 type GuideMeRequirementIndicator = {
   label: string;
   state: "met" | "partial" | "missing";
@@ -58,6 +60,20 @@ export function GuideMePanel({
   onSubmit,
   onUsePrompt,
 }: GuideMePanelProps) {
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setShowPromptPreview(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!session?.finalPrompt) {
+      setShowPromptPreview(false);
+    }
+  }, [session?.finalPrompt]);
+
   if (!open) {
     return null;
   }
@@ -93,6 +109,25 @@ export function GuideMePanel({
               <div className="guide-me-guidance">{session.guidanceText}</div>
             ) : null}
 
+            {showPromptPreview && session.finalPrompt ? (
+              <div className="guide-me-preview-modal" role="dialog" aria-modal="false" aria-label="Current prompt draft">
+                <div className="guide-me-preview-header">
+                  <div className="guide-me-meta-label">
+                    {session.readyToInsert ? "Formatted prompt" : "Current prompt draft"}
+                  </div>
+                  <button
+                    className="feedback-button"
+                    disabled={busy}
+                    type="button"
+                    onClick={() => setShowPromptPreview(false)}
+                  >
+                    Hide
+                  </button>
+                </div>
+                <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
+              </div>
+            ) : null}
+
             {session.readyToInsert && session.finalPrompt ? (
               <div className="guide-me-final">
                 <div className="guide-me-meta-label">Formatted prompt</div>
@@ -108,7 +143,7 @@ export function GuideMePanel({
                   value={answer}
                   onChange={(event) => onAnswerChange(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       onSubmit();
                     }
@@ -120,6 +155,16 @@ export function GuideMePanel({
             {error ? <div className="error-banner">{error}</div> : null}
 
             <div className="guide-me-actions">
+              {session.finalPrompt ? (
+                <button
+                  className="feedback-button"
+                  disabled={busy}
+                  type="button"
+                  onClick={() => setShowPromptPreview((current) => !current)}
+                >
+                  {showPromptPreview ? "Hide Prompt" : "View Prompt"}
+                </button>
+              ) : null}
               {session.readyToInsert ? (
                 <button className="send-button" type="button" onClick={onUsePrompt}>
                   Use Prompt
@@ -136,10 +181,19 @@ export function GuideMePanel({
           </>
         ) : (
           <div className="guide-me-empty">
-            <p>Start a guided session to build a structured prompt with personalized coaching.</p>
-            <button className="send-button" disabled={busy} type="button" onClick={onLaunch}>
-              Launch Guide Me
-            </button>
+            {busy ? (
+              <>
+                <div className="guide-me-loading-indicator" aria-hidden="true" />
+                <p>Starting Guide Me and loading your current prompt context...</p>
+              </>
+            ) : (
+              <>
+                <p>Start a guided session to build a structured prompt with personalized coaching.</p>
+                <button className="send-button" disabled={busy} type="button" onClick={onLaunch}>
+                  Launch Guide Me
+                </button>
+              </>
+            )}
           </div>
         )}
       </section>

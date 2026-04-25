@@ -471,6 +471,23 @@ input {
   background: color-mix(in srgb, var(--panel-soft) 76%, transparent);
 }
 
+.guide-me-preview-modal {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.guide-me-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .guide-me-question,
 .guide-me-guidance,
 .guide-me-final-prompt,
@@ -514,6 +531,24 @@ input {
 .guide-me-empty {
   display: grid;
   gap: 12px;
+}
+
+.guide-me-loading-indicator {
+  width: 28px;
+  height: 28px;
+  border: 3px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: guide-me-spin 0.8s linear infinite;
+}
+
+@keyframes guide-me-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .transcript {
