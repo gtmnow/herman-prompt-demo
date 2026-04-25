@@ -151,7 +151,7 @@ class GuideMeService:
                     answers=answers,
                     personalization=guide_session.personalization or {},
                 )
-                answers.update({key: value for key, value in extracted_updates.items() if value})
+                answers = _merge_answer_updates(answers, extracted_updates)
 
                 if guide_session.current_step == "describe_need" and not answers.get("task"):
                     answers["task"] = answer
@@ -744,8 +744,15 @@ def _merge_answer_updates(answers: dict[str, str], updates: dict[str, str]) -> d
         if not cleaned:
             continue
         current = str(merged.get(key) or "").strip()
-        if not current or len(cleaned) > len(current):
+        if not current:
             merged[key] = cleaned
+            continue
+        if cleaned.casefold() in current.casefold():
+            continue
+        if current.casefold() in cleaned.casefold():
+            merged[key] = cleaned
+            continue
+        merged[key] = _combine_section_values(key=key, current=current, new_value=cleaned)
     return merged
 
 
@@ -787,6 +794,10 @@ def _heuristic_extract_answer_updates(*, current_step: str, answer: str) -> dict
     cleaned = answer.strip()
     normalized = cleaned.lower()
 
+    role_prefixes = ("you are", "act as", "be a", "be an", "serve as", "assume the role of")
+    output_markers = ("respond", "output", "format", "bullet", "bullets", "table", "paragraph", "heading", "headings")
+    context_markers = ("for ", "this is for", "because", "audience", "background", "context", "book report", "prepare for")
+
     if current_step == "who":
         if " to " in normalized:
             before, _, after = cleaned.partition(" to ")
@@ -803,10 +814,53 @@ def _heuristic_extract_answer_updates(*, current_step: str, answer: str) -> dict
     elif current_step == "what":
         updates["output"] = cleaned
 
-    if "for " in normalized and "year old" in normalized and not updates.get("context"):
+    if any(normalized.startswith(prefix) for prefix in role_prefixes) and not updates.get("who"):
+        updates["who"] = cleaned
+
+    if any(marker in normalized for marker in ("i need you to", "i need ", "need someone", "need a ", "help me", "please", "create", "draft", "explain", "analyze", "compare", "summarize")) and not updates.get("task"):
+        updates["task"] = cleaned
+
+    if any(marker in normalized for marker in context_markers) and not updates.get("context"):
         updates["context"] = cleaned
 
+    if any(marker in normalized for marker in output_markers) and not updates.get("output"):
+        updates["output"] = cleaned
+
+    if "for " in normalized and "year old" in normalized:
+        updates["context"] = cleaned
+
+    if " and " in normalized and "you are" in normalized and not updates.get("task"):
+        _, _, trailing = cleaned.partition(" and ")
+        if trailing.strip():
+            updates["task"] = trailing.strip()
+
     return updates
+
+
+def _combine_section_values(*, key: str, current: str, new_value: str) -> str:
+    if key == "task":
+        return _merge_distinct_phrases(current, new_value, separator=" ")
+    if key == "context":
+        return _merge_distinct_phrases(current, new_value, separator=" ")
+    if key == "output":
+        return _merge_distinct_phrases(current, new_value, separator=" ")
+    if key == "instructions":
+        return _merge_sections(current, new_value)
+    return new_value if len(new_value) > len(current) else current
+
+
+def _merge_distinct_phrases(current: str, new_value: str, *, separator: str) -> str:
+    current_clean = current.strip()
+    new_clean = new_value.strip()
+    if not current_clean:
+        return new_clean
+    if not new_clean:
+        return current_clean
+    if new_clean.casefold() in current_clean.casefold():
+        return current_clean
+    if current_clean.casefold() in new_clean.casefold():
+        return new_clean
+    return f"{current_clean}{separator}{new_clean}".strip()
 
 
 def _extract_labeled_answers(source_prompt: str) -> dict[str, str]:
