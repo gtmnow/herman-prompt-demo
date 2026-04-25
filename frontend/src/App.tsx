@@ -64,6 +64,7 @@ type GuideMeApiSession = {
   question_text?: string | null;
   answers: Record<string, string>;
   requirements: Record<string, GuideMeRequirementApiIndicator>;
+  requirement_debug?: Record<string, Record<string, unknown>>;
   personalization: {
     first_name: string;
     typical_ai_usage: string;
@@ -1173,6 +1174,7 @@ export function App() {
         error={guideMeError}
         open={guideMeOpen}
         session={guideMeSession}
+        showDetails={showDetails}
         onAnswerChange={setGuideMeAnswer}
         onCancel={cancelGuideMe}
         onClose={() => setGuideMeOpen(false)}
@@ -1265,6 +1267,7 @@ function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
     questionText: session.question_text ?? null,
     answers: session.answers ?? {},
     requirements,
+    requirementDebug: session.requirement_debug ?? {},
     personalization: {
       firstName: session.personalization.first_name,
       typicalAiUsage: session.personalization.typical_ai_usage,

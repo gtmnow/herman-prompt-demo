@@ -274,6 +274,7 @@ class GuideMeService:
                 if value and not str(key).startswith("_")
             },
             requirements=_build_requirement_indicators(guide_session.answers or {}),
+            requirement_debug=_serialize_requirement_debug(guide_session.answers or {}),
             personalization=personalization,
             guidance_text=guide_session.guidance_text or None,
             follow_up_questions=guide_session.follow_up_questions or [],
@@ -449,12 +450,16 @@ class GuideMeService:
                 conversation_id=conversation_id,
                 user_id=user.user_id_hash,
             )
-            requirements = _extract_transformer_requirements(transformed=transformed, score=score)
+            requirements = _extract_transformer_requirements(transformed=transformed, score=None)
             answers["_transformer_requirements"] = requirements
             target_field = _select_target_field_for_refinement(requirements=requirements)
             if failing_field:
                 answers["_target_field"] = failing_field
-                current_step = _field_to_step(failing_field)
+                current_step = _step_for_target_field(
+                    field=failing_field,
+                    answers=answers,
+                    requirements=requirements,
+                )
                 return {
                     "answers": answers,
                     "current_step": current_step,
@@ -476,7 +481,11 @@ class GuideMeService:
                     answers["_target_field"] = target_field
                     return {
                         "answers": answers,
-                        "current_step": _field_to_step(target_field),
+                        "current_step": _step_for_target_field(
+                            field=target_field,
+                            answers=answers,
+                            requirements=requirements,
+                        ),
                         "guidance_text": "",
                         "refinement_options": [],
                         "final_prompt": _compose_final_prompt(answers),
@@ -508,7 +517,11 @@ class GuideMeService:
         target_field = validation["target_field"]
         if target_field:
             answers["_target_field"] = target_field
-            guide_session.current_step = _field_to_step(target_field)
+            guide_session.current_step = _step_for_target_field(
+                field=target_field,
+                answers=answers,
+                requirements=validation["requirements"],
+            )
         else:
             guide_session.current_step = "refine" if _required_sections_complete(answers) else _next_collection_step(answers)
         guide_session.status = "active"
@@ -545,7 +558,7 @@ class GuideMeService:
             conversation_id=guide_session.conversation_id,
             user_id=guide_session.user_id_hash,
         )
-        requirements = _extract_transformer_requirements(transformed=transformed, score=score)
+        requirements = _extract_transformer_requirements(transformed=transformed, score=None)
         target_field = _select_target_field_for_refinement(requirements=requirements)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
@@ -618,11 +631,8 @@ def _question_for_session(
             + f'Please tell me exactly how the final answer should be delivered. Include the format, length, structure, and tone you want, such as "{example}"',
         )
     if current_step == "refine":
-        numbered = "\n".join(f"{index + 1}. {question}" for index, question in enumerate(follow_up_questions))
         question_text = (
-            f"{personalization.first_name}, {guidance_text or 'I have several suggestions that will improve your prompt.'} "
-            "Here are some examples you can use. Reply with the numbers you want, or enter your own refinement now.\n\n"
-            f"{numbered}"
+            f"{personalization.first_name}, choose one of the improvements below, or type your own refinement now."
         )
         return ("Refine Prompt", question_text.strip())
     if current_step == "complete":
@@ -654,6 +664,26 @@ def _build_requirement_indicators(answers: dict[str, str]) -> dict[str, GuideMeR
             improvement_hint=str(requirement_dict.get("improvement_hint") or "").strip() or None,
         )
     return indicators
+
+
+def _serialize_requirement_debug(answers: dict[str, str]) -> dict[str, dict]:
+    stored_requirements = answers.get("_transformer_requirements")
+    requirements = stored_requirements if isinstance(stored_requirements, dict) else {}
+    serialized: dict[str, dict] = {}
+    for key in ("who", "task", "context", "output"):
+        requirement = requirements.get(key) if isinstance(requirements, dict) else None
+        if not isinstance(requirement, dict):
+            continue
+        serialized[key] = {
+            "value": requirement.get("value"),
+            "status": requirement.get("status"),
+            "heuristic_score": _safe_int(requirement.get("heuristic_score")),
+            "llm_score": _safe_int(requirement.get("llm_score")),
+            "max_score": _safe_int(requirement.get("max_score")),
+            "reason": str(requirement.get("reason") or "").strip() or None,
+            "improvement_hint": str(requirement.get("improvement_hint") or "").strip() or None,
+        }
+    return serialized
 
 
 def _first_name(display_name: str) -> str:
@@ -1160,6 +1190,15 @@ def _field_to_step(field: str) -> str:
         "context": "how",
         "output": "what",
     }.get(field, "intro")
+
+
+def _step_for_target_field(*, field: str, answers: dict[str, str], requirements: dict[str, dict] | None) -> str:
+    requirement = (requirements or {}).get(field) if isinstance(requirements, dict) else None
+    status = str((requirement or {}).get("status") or "").strip() if isinstance(requirement, dict) else ""
+    existing_value = str(answers.get(field) or "").strip()
+    if status in {"missing", "derived"} or not existing_value:
+        return _field_to_step(field)
+    return "refine"
 
 
 def _build_score_guidance(score: dict | None) -> str:

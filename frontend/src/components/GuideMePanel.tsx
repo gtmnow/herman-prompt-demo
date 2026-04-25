@@ -19,6 +19,7 @@ export type GuideMeSession = {
   questionText?: string | null;
   answers: Record<string, string>;
   requirements: Record<string, GuideMeRequirementIndicator>;
+  requirementDebug?: Record<string, Record<string, unknown>>;
   personalization: {
     firstName: string;
     typicalAiUsage: string;
@@ -37,6 +38,7 @@ type GuideMePanelProps = {
   error: string | null;
   open: boolean;
   session: GuideMeSession | null;
+  showDetails: boolean;
   onAnswerChange: (value: string) => void;
   onCancel: () => void;
   onClose: () => void;
@@ -52,6 +54,7 @@ export function GuideMePanel({
   error,
   open,
   session,
+  showDetails,
   onAnswerChange,
   onCancel,
   onClose,
@@ -107,6 +110,25 @@ export function GuideMePanel({
             {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
             {session.currentStep === "refine" && session.guidanceText ? (
               <div className="guide-me-guidance">{session.guidanceText}</div>
+            ) : null}
+            {session.currentStep === "refine" && session.followUpQuestions.length > 0 ? (
+              <div className="guide-me-options">
+                {session.followUpQuestions.map((option, index) => (
+                  <div key={`${index + 1}-${option}`} className="guide-me-option">
+                    <span className="guide-me-option-number">{index + 1}.</span>
+                    <span>{option}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {showDetails && session.requirementDebug && Object.keys(session.requirementDebug).length > 0 ? (
+              <details className="guide-me-debug">
+                <summary>Requirement Debug</summary>
+                <pre className="guide-me-debug-pre">
+                  {JSON.stringify(session.requirementDebug, null, 2)}
+                </pre>
+              </details>
             ) : null}
 
             {showPromptPreview && session.finalPrompt ? (

@@ -464,6 +464,7 @@ input {
 
 .guide-me-question,
 .guide-me-guidance,
+.guide-me-options,
 .guide-me-final {
   padding: 14px 16px;
   border: 1px solid var(--border);
@@ -486,6 +487,44 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.guide-me-debug {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-soft) 70%, transparent);
+}
+
+.guide-me-debug summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.guide-me-debug-pre {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.guide-me-options {
+  display: grid;
+  gap: 12px;
+}
+
+.guide-me-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.guide-me-option-number {
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .guide-me-question,

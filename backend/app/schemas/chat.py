@@ -96,6 +96,7 @@ class GuideMeSessionPayload(BaseModel):
     question_text: str | None = None
     answers: dict[str, str] = Field(default_factory=dict)
     requirements: dict[str, GuideMeRequirementIndicator] = Field(default_factory=dict)
+    requirement_debug: dict[str, dict[str, Any]] = Field(default_factory=dict)
     personalization: GuideMePersonalization
     guidance_text: str | None = None
     follow_up_questions: list[str] = Field(default_factory=list)
