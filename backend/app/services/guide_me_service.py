@@ -527,10 +527,11 @@ def _question_for_session(
             + 'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know.',
         )
     if current_step == "what":
+        example = _build_output_example(answers)
         return (
             "What Is My Output?",
             _question_prefix(field="output", answers=answers)
-            + 'Please type in your desired output format and structure. Include any final instructions, such as tone, headings, tables, links, or things to avoid.',
+            + f'Please tell me exactly how the final answer should be delivered. Include the format, length, structure, and tone you want, such as "{example}"',
         )
     if current_step == "refine":
         numbered = "\n".join(f"{index + 1}. {question}" for index, question in enumerate(follow_up_questions))
@@ -639,6 +640,53 @@ def _build_why_example(personalization: GuideMePersonalization, answers: dict[st
     if "book report" in context or "10-year-old" in context:
         return "Keep the explanation accurate, simple, and engaging, with no dense historical jargon."
     return f"Provide practical, well-structured guidance for {task}. Keep the response clear, concise, and professional."
+
+
+def _build_output_example(answers: dict[str, str]) -> str:
+    task = _clean_sentence_fragment(answers.get("task") or "this request")
+    context = _clean_sentence_fragment(answers.get("context") or "")
+    audience_hint = _audience_hint(context)
+    format_hint = _format_hint(task, context)
+
+    if audience_hint:
+        return (
+            f"Respond in this chat with {format_hint} about {task}, written {audience_hint}."
+        )
+    return f"Respond in this chat with {format_hint} about {task}."
+
+
+def _clean_sentence_fragment(value: str) -> str:
+    cleaned = " ".join(value.split()).strip().rstrip(".")
+    return cleaned or "this request"
+
+
+def _audience_hint(context: str) -> str:
+    lowered = context.lower()
+    child_match = re.search(r"(\d+)[-\s]?year[-\s]?old", lowered)
+    if child_match:
+        return f"in plain language for a {child_match.group(1)}-year-old"
+    if "book report" in lowered:
+        return "for a student audience"
+    if any(keyword in lowered for keyword in ("ceo", "executive", "board", "leadership team")):
+        return "for an executive audience"
+    if any(keyword in lowered for keyword in ("client", "customer", "prospect")):
+        return "for a client-facing audience"
+    if any(keyword in lowered for keyword in ("plain english", "plain language", "non-lawyer", "non technical", "non-technical")):
+        return "in plain language"
+    return ""
+
+
+def _format_hint(task: str, context: str) -> str:
+    lowered = f"{task} {context}".lower()
+    if any(keyword in lowered for keyword in ("compare", "comparison", "options", "tradeoff", "trade-off")):
+        return "a concise comparison table followed by bullet-point recommendations"
+    if any(keyword in lowered for keyword in ("plan", "roadmap", "strategy", "brief")):
+        return "a short executive summary followed by clear bullet-point recommendations"
+    if any(keyword in lowered for keyword in ("email", "message", "reply", "communication")):
+        return "a polished draft followed by 3 brief alternatives"
+    if any(keyword in lowered for keyword in ("explain", "summary", "summarize", "book report")):
+        return "a short summary followed by 4 bullet points"
+    return "a concise summary followed by clear bullet points and next steps"
 
 
 def _build_answer_extraction_prompt(
