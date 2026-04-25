@@ -390,7 +390,11 @@ class GuideMeService:
                 conversation_id=conversation_id,
                 user_id=user.user_id_hash,
             )
-            target_field = failing_field or _select_target_field_for_refinement(answers=answers, score=score)
+            target_field = _select_target_field_for_refinement(
+                answers=answers,
+                score=score,
+                failing_field=failing_field,
+            )
             if failing_field:
                 answers["_target_field"] = failing_field
                 current_step = _field_to_step(failing_field)
@@ -472,7 +476,11 @@ class GuideMeService:
             conversation_id=guide_session.conversation_id,
             user_id=guide_session.user_id_hash,
         )
-        target_field = failing_field or _select_target_field_for_refinement(answers=answers, score=score)
+        target_field = _select_target_field_for_refinement(
+            answers=answers,
+            score=score,
+            failing_field=failing_field,
+        )
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         return {
@@ -521,10 +529,11 @@ def _question_for_session(
             f'Please type in my Instructions. Provide specific guidelines for your task or question, such as "{example}"',
         )
     if current_step == "how":
+        example = _build_context_example(answers)
         return (
             "How Can I Accomplish This?",
             _question_prefix(field="context", answers=answers)
-            + 'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know.',
+            + f'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know, such as "{example}"',
         )
     if current_step == "what":
         example = _build_output_example(answers)
@@ -659,6 +668,17 @@ def _build_output_example(answers: dict[str, str]) -> str:
             f"Respond in this chat with {format_hint} about {task}, written {audience_hint}."
         )
     return f"Respond in this chat with {format_hint} about {task}."
+
+
+def _build_context_example(answers: dict[str, str]) -> str:
+    task = _clean_sentence_fragment(answers.get("task") or "this request")
+    output = _clean_sentence_fragment(answers.get("output") or "")
+    audience_hint = _audience_hint(answers.get("context") or "")
+    if audience_hint and output != "this request":
+        return f"This is for {audience_hint.replace('for ', '').replace('in plain language', 'a plain-language audience')}, and I need the answer structured as {output}."
+    if audience_hint:
+        return f"This is {audience_hint}, and I need help with {task}."
+    return f"This is for a specific audience and situation, and I need help with {task}."
 
 
 def _clean_sentence_fragment(value: str) -> str:
@@ -941,16 +961,23 @@ def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
     return "\n".join(selected) if selected else normalized
 
 
-def _select_target_field_for_refinement(*, answers: dict[str, str], score: dict | None) -> str | None:
-    heuristics = [
-        ("output", _field_strength_score("output", answers)),
-        ("context", _field_strength_score("context", answers)),
-        ("who", _field_strength_score("who", answers)),
-        ("task", _field_strength_score("task", answers)),
+def _select_target_field_for_refinement(
+    *,
+    answers: dict[str, str],
+    score: dict | None,
+    failing_field: str | None = None,
+) -> str | None:
+    field_scores = [
+        ("task", _field_score_out_of_25("task", answers)),
+        ("who", _field_score_out_of_25("who", answers)),
+        ("context", _field_score_out_of_25("context", answers)),
+        ("output", _field_score_out_of_25("output", answers)),
     ]
-    weakest_field, weakest_score = min(heuristics, key=lambda item: item[1])
-    if weakest_score < 4:
+    weakest_field, weakest_score = min(field_scores, key=lambda item: item[1])
+    if weakest_score < 25:
         return weakest_field
+    if failing_field:
+        return failing_field
     if not _is_perfect_score(score):
         return weakest_field
     return None
