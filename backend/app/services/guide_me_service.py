@@ -685,6 +685,11 @@ def _build_who_example(personalization: GuideMePersonalization, answers: dict[st
         return "You are an experienced estate planning attorney helping me understand how to create a will."
     if "book report" in context or "10-year-old" in context:
         return "You are a U.S. history teacher explaining this topic clearly for a 10-year-old student."
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers)
+        if role:
+            return f"You are an experienced recruiting strategist helping me improve hiring quality for a {role} role."
+        return "You are an experienced recruiting strategist helping me improve hiring quality for this role."
     if any(keyword in task.lower() for keyword in ("brief", "strategy", "plan", "roadmap")):
         return f"You are a senior strategy advisor helping me {task}."
     if any(keyword in task.lower() for keyword in ("email", "message", "reply", "communication")):
@@ -705,6 +710,11 @@ def _build_why_example(personalization: GuideMePersonalization, answers: dict[st
 def _build_output_example(answers: dict[str, str]) -> str:
     task = _clean_sentence_fragment(answers.get("task") or "this request")
     context = _clean_sentence_fragment(answers.get("context") or "")
+    if _is_hiring_context(context):
+        return (
+            "Respond in this chat with: 1. a 3-sentence summary 2. 5 bullet points to improve the job description "
+            "3. 5 bullet points to strengthen screening criteria 4. 3 sourcing recommendations 5. 3 immediate next steps for this week."
+        )
     audience_hint = _audience_hint(context)
     format_hint = _format_hint(task, context)
 
@@ -719,7 +729,7 @@ def _build_task_example(answers: dict[str, str]) -> str:
     context = _clean_sentence_fragment(answers.get("context") or "")
     who = _clean_sentence_fragment(answers.get("who") or "")
     if "applicant" in context.lower() or "candidate" in context.lower() or "recruit" in who.lower():
-        return "I need a clear action plan for how to reduce the number of unqualified applicants."
+        return "Recommend specific changes to reduce unqualified applicants by at least 30% over the next hiring cycle."
     if "sales" in context.lower():
         return "I need a practical plan for how to improve the quality of sales candidates entering the funnel."
     return "I need a specific action plan for the outcome I want to achieve."
@@ -728,6 +738,13 @@ def _build_task_example(answers: dict[str, str]) -> str:
 def _build_context_example(answers: dict[str, str]) -> str:
     task = _clean_sentence_fragment(answers.get("task") or "this request")
     output = _clean_sentence_fragment(answers.get("output") or "")
+    context = answers.get("context") or ""
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers) or "this role"
+        return (
+            f"We are receiving a high volume of applicants for the {role} role who lack the must-have experience. "
+            "Include the most common qualification gaps, the customer segment, and any critical requirements."
+        )
     audience_hint = _audience_hint(answers.get("context") or "")
     if audience_hint and output != "this request":
         return f"This is for {audience_hint.replace('for ', '').replace('in plain language', 'a plain-language audience')}, and I need the answer structured as {output}."
@@ -1381,17 +1398,58 @@ def _task_to_about_phrase(task: str) -> str:
     return cleaned.lower()
 
 
+def _specificity_guidance(field: str | None) -> str:
+    guidance = {
+        "who": "Strengthen the Who section by naming the exact expertise, perspective, and audience fit you want.",
+        "task": "Strengthen the Task section by stating the exact outcome, measurable target, and timeframe you care about.",
+        "context": "Strengthen the Context section by adding concrete constraints, qualification details, and the real situation behind the request.",
+        "output": "Strengthen the Output section by specifying the exact structure, counts, sections, and delivery format you want.",
+    }
+    return guidance.get(field or "", "")
+
+
+def _is_hiring_context(context: str) -> bool:
+    lowered = context.lower()
+    return any(
+        token in lowered
+        for token in (
+            "applicant",
+            "candidate",
+            "hiring",
+            "recruit",
+            "job description",
+            "screening",
+            "interview",
+            "role",
+            "position",
+        )
+    )
+
+
+def _role_display_from_answers(answers: dict[str, str]) -> str | None:
+    context_role = _extract_role_phrase_from_context(str(answers.get("context") or ""))
+    if context_role:
+        return context_role
+
+    task = str(answers.get("task") or "").strip()
+    match = re.search(r"for (?:a |an |the )?(.+)$", task, flags=re.IGNORECASE)
+    if match:
+        role = " ".join(match.group(1).split()).strip().rstrip(".")
+        return role or None
+    return None
+
+
 def _build_refinement_guidance(*, field: str | None, requirements: dict[str, dict] | None, score: dict | None) -> str:
+    specificity = _specificity_guidance(field)
     requirement = (requirements or {}).get(field or "")
     if isinstance(requirement, dict):
         reason = str(requirement.get("reason") or "").strip()
         improvement_hint = str(requirement.get("improvement_hint") or "").strip()
-        if reason and improvement_hint:
-            return f"{reason} {improvement_hint}"
-        if improvement_hint:
-            return improvement_hint
-        if reason:
-            return reason
+        details = " ".join(part for part in (specificity, reason, improvement_hint) if part)
+        if details:
+            return details
+    if specificity:
+        return f"{specificity} {_build_score_guidance(score)}".strip()
     return _build_score_guidance(score)
 
 
@@ -1420,6 +1478,13 @@ def _who_refinement_options(answers: dict[str, str]) -> list[str]:
             "Who: You are an elementary school history teacher making complex ideas simple and engaging.",
             "Who: You are a historian writing for a 10-year-old who needs clear, accurate explanations.",
         ]
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers) or "this role"
+        return [
+            f"Who: You are an experienced recruiting strategist helping me improve hiring quality for a {role} role.",
+            f"Who: You are a talent acquisition leader focused on reducing unqualified applicants for a {role} opening.",
+            f"Who: You are a recruiting operations advisor helping me tighten selection criteria for a {role} role.",
+        ]
     return [
         f"Who: You are an experienced subject-matter expert helping me {task}.",
         f"Who: You are a practical advisor focused on helping me {task}.",
@@ -1430,6 +1495,13 @@ def _who_refinement_options(answers: dict[str, str]) -> list[str]:
 def _task_refinement_options(answers: dict[str, str]) -> list[str]:
     task = (answers.get("task") or "help with this request").strip().rstrip(".")
     context = (answers.get("context") or "").strip()
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers) or "this role"
+        return [
+            f"Task: Recommend specific changes to reduce unqualified applicants for the {role} role by at least 30% over the next hiring cycle.",
+            f"Task: Identify the highest-impact changes to improve applicant quality for the {role} role before the next hiring cycle begins.",
+            f"Task: Recommend practical steps to reduce unqualified applicants for the {role} role without slowing down hiring speed.",
+        ]
     if context:
         return [
             f"Task: {task}. Focus on the most useful points for this situation: {context}",
@@ -1445,6 +1517,14 @@ def _task_refinement_options(answers: dict[str, str]) -> list[str]:
 
 def _context_refinement_options(answers: dict[str, str]) -> list[str]:
     task = (answers.get("task") or "this request").strip().rstrip(".")
+    context = (answers.get("context") or "").strip()
+    if _is_hiring_context(context):
+        role = _role_display_from_answers(answers) or "this role"
+        return [
+            f"Context: We are receiving a high volume of applicants for the {role} role who lack the must-have experience. Include the most common qualification gaps, the customer segment, and the core skills required.",
+            f"Context: This role requires specific experience, and too many applicants do not meet the baseline. Include the required years of experience, domain background, and critical responsibilities candidates are missing.",
+            "Context: Explain the hiring constraints, the experience gaps you are seeing, and the must-have qualifications so the recommendations can be tailored to the real problem.",
+        ]
     return [
         f"Context: This answer is for a specific audience, so tailor it to their level of knowledge and keep it focused on {task}.",
         "Context: Include the audience, setting, and why this answer is needed so the response can be better tailored.",
@@ -1459,6 +1539,12 @@ def _output_refinement_options(answers: dict[str, str]) -> list[str]:
             "Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.",
             "Output: Write 2 short paragraphs in simple language, then add 4 bullet points with the most important facts.",
             "Output: Give me a kid-friendly summary in this chat with bold headings and a short bullet list of key takeaways.",
+        ]
+    if _is_hiring_context(context):
+        return [
+            "Output: Respond in this chat with: 1. a 3-sentence summary 2. 5 bullet points to improve the job description 3. 5 bullet points to strengthen screening criteria 4. 3 sourcing recommendations 5. 3 immediate next steps for this week.",
+            "Output: Format the answer as a concise hiring action plan with a short summary, separate sections for job description, screening criteria, sourcing, and next steps, and exact bullet counts for each section.",
+            "Output: Respond with a short executive summary, then clearly labeled sections for job description improvements, screening improvements, sourcing recommendations, and immediate actions.",
         ]
     return [
         "Output: Respond in this chat with a short summary followed by 4 to 5 actionable bullet points.",
