@@ -1,0 +1,24 @@
+[
+  {
+    "name": "hiring_unqualified_candidates",
+    "prompt": "We\u2019re hiring a Customer Success Manager but we\u2019re getting a lot of unqualified candidates",
+    "answers": {
+      "describe_need": "Recommend specific changes to reduce unqualified applicants by at least 30% over the next hiring cycle.",
+      "who": "You are an experienced recruiting strategist helping me improve hiring quality for a Customer Success Manager role.",
+      "how": "We are receiving a high volume of applicants who lack SaaS customer success experience, renewal ownership, and cross-functional stakeholder management skills. This role supports mid-market B2B customers and requires 3+ years in post-sale account management or customer success.",
+      "what": "Respond in this chat with: 1. a 3-sentence summary 2. 5 bullet points to improve the job description 3. 5 bullet points to strengthen screening criteria 4. 3 sourcing recommendations 5. 3 immediate next steps for this week.",
+      "why": "Prioritize practical changes that can be implemented without increasing recruiter headcount."
+    }
+  },
+  {
+    "name": "cheaper_ram_simms",
+    "prompt": "i need to find a cheaper source for RAM SIMMS",
+    "answers": {
+      "describe_need": "Identify cheaper suppliers for 1GB, 2GB, and 4GB RAM SIMMs that can ship immediately.",
+      "who": "You are an experienced discrete parts buyer helping me source RAM SIMMs at lower total cost.",
+      "how": "We need current stock availability and confirmed immediate shipment. Compare suppliers on price, part number, minimum order quantity, and delivery timing for 1GB, 2GB, and 4GB RAM SIMMs.",
+      "what": "Provide a table listing supplier, part number, unit price, minimum order quantity, and estimated delivery time for 1GB, 2GB, and 4GB RAM SIMMs, followed by 3 brief sourcing recommendations.",
+      "why": "Prioritize suppliers that can verify immediate shipment and lower total procurement cost."
+    }
+  }
+]

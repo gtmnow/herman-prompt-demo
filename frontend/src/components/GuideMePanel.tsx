@@ -20,6 +20,7 @@ export type GuideMeSession = {
   answers: Record<string, string>;
   requirements: Record<string, GuideMeRequirementIndicator>;
   requirementDebug?: Record<string, Record<string, unknown>>;
+  decisionTrace?: Record<string, unknown>;
   personalization: {
     firstName: string;
     typicalAiUsage: string;
@@ -127,6 +128,15 @@ export function GuideMePanel({
                 <summary>Requirement Debug</summary>
                 <pre className="guide-me-debug-pre">
                   {JSON.stringify(session.requirementDebug, null, 2)}
+                </pre>
+              </details>
+            ) : null}
+
+            {showDetails && session.decisionTrace && Object.keys(session.decisionTrace).length > 0 ? (
+              <details className="guide-me-debug">
+                <summary>Decision Trace</summary>
+                <pre className="guide-me-debug-pre">
+                  {JSON.stringify(session.decisionTrace, null, 2)}
                 </pre>
               </details>
             ) : null}

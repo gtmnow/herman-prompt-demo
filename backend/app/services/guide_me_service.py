@@ -150,7 +150,19 @@ class GuideMeService:
                         answers=answers,
                         personalization=guide_session.personalization or {},
                     )
+                    if current_step != "why":
+                        extracted_updates.pop("instructions", None)
+                    extracted_updates = _ensure_step_field_capture(
+                        current_step=current_step,
+                        answer=answer,
+                        updates=extracted_updates,
+                    )
                     answers = _merge_answer_updates(answers, extracted_updates)
+                    answers = _apply_primary_step_answer(
+                        current_step=current_step,
+                        answer=answer,
+                        answers=answers,
+                    )
 
                     if current_step == "describe_need" and not answers.get("task"):
                         answers["task"] = answer
@@ -275,6 +287,7 @@ class GuideMeService:
             },
             requirements=_build_requirement_indicators(guide_session.answers or {}),
             requirement_debug=_serialize_requirement_debug(guide_session.answers or {}),
+            decision_trace=_serialize_decision_trace(guide_session.answers or {}),
             personalization=personalization,
             guidance_text=guide_session.guidance_text or None,
             follow_up_questions=guide_session.follow_up_questions or [],
@@ -380,6 +393,7 @@ class GuideMeService:
         score: dict[str, object] | None,
         final_prompt: str,
         preferred_focus: str | None,
+        retry_due_to_stall: bool,
     ) -> dict[str, object]:
         fallback_focus = preferred_focus or _select_specificity_focus(
             answers=answers,
@@ -404,6 +418,7 @@ class GuideMeService:
                 score=score,
                 final_prompt=final_prompt,
                 preferred_focus=fallback_focus,
+                retry_due_to_stall=retry_due_to_stall,
             )
             response_text = await self.llm_client.generate_text(prompt=prompt)
             payload = _extract_json_object(response_text)
@@ -517,6 +532,7 @@ class GuideMeService:
                 user_id=user.user_id_hash,
             )
             requirements = _extract_transformer_requirements(transformed=transformed, score=None)
+            answers = _sync_answers_from_requirements(answers, requirements)
             answers["_transformer_requirements"] = requirements
             target_field = _select_target_field_for_refinement(requirements=requirements)
             if failing_field:
@@ -526,6 +542,17 @@ class GuideMeService:
                     answers=answers,
                     requirements=requirements,
                 )
+                answers["_guide_me_trace"] = _build_decision_trace(
+                    answers=answers,
+                    requirements=requirements,
+                    score=score,
+                    target_field=failing_field,
+                    current_step=current_step,
+                    passes=False,
+                    mode="structure",
+                    guidance_text="",
+                    refinement_options=[],
+                )
                 return {
                     "answers": answers,
                     "current_step": current_step,
@@ -533,9 +560,20 @@ class GuideMeService:
                     "refinement_options": [],
                     "final_prompt": _compose_final_prompt(answers),
                 }
-            if _required_sections_complete(answers):
+            if _should_enter_specificity_mode(answers=answers, requirements=requirements):
                 if _is_perfect_score(score):
                     answers["_source_prompt_already_perfect"] = "true"
+                    answers["_guide_me_trace"] = _build_decision_trace(
+                        answers=answers,
+                        requirements=requirements,
+                        score=score,
+                        target_field=None,
+                        current_step="complete",
+                        passes=True,
+                        mode="specificity",
+                        guidance_text="",
+                        refinement_options=[],
+                    )
                     return {
                         "answers": answers,
                         "current_step": "complete",
@@ -544,16 +582,38 @@ class GuideMeService:
                         "final_prompt": _compose_final_prompt(answers),
                     }
                 if target_field:
+                    specificity_refinement = await self._generate_specificity_refinement(
+                        answers=answers,
+                        requirements=requirements,
+                        score=score,
+                        final_prompt=_compose_final_prompt(answers),
+                        preferred_focus=target_field,
+                        retry_due_to_stall=False,
+                    )
+                    current_step = _step_for_target_field(
+                        field=target_field,
+                        answers=answers,
+                        requirements=requirements,
+                    )
+                    guidance_text = str(specificity_refinement.get("guidance_text") or "").strip()
+                    refinement_options = list(specificity_refinement.get("refinement_options") or [])
+                    answers["_guide_me_trace"] = _build_decision_trace(
+                        answers=answers,
+                        requirements=requirements,
+                        score=score,
+                        target_field=target_field,
+                        current_step=current_step,
+                        passes=False,
+                        mode="specificity",
+                        guidance_text=guidance_text,
+                        refinement_options=refinement_options,
+                    )
                     answers["_target_field"] = target_field
                     return {
                         "answers": answers,
-                        "current_step": _step_for_target_field(
-                            field=target_field,
-                            answers=answers,
-                            requirements=requirements,
-                        ),
-                        "guidance_text": "",
-                        "refinement_options": [],
+                        "current_step": current_step,
+                        "guidance_text": guidance_text,
+                        "refinement_options": refinement_options,
                         "final_prompt": _compose_final_prompt(answers),
                     }
         except Exception:
@@ -572,6 +632,20 @@ class GuideMeService:
         validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
         if validation["requirements"] is not None:
             answers["_transformer_requirements"] = validation["requirements"]
+            synced_answers = _sync_answers_from_requirements(answers, validation["requirements"])
+            answers.clear()
+            answers.update(synced_answers)
+        answers["_guide_me_trace"] = _build_decision_trace(
+            answers=answers,
+            requirements=validation.get("requirements"),
+            score=validation.get("score"),
+            target_field=validation.get("target_field"),
+            current_step=str(validation.get("next_step") or guide_session.current_step or ""),
+            passes=bool(validation.get("passes")),
+            mode=str(validation.get("mode") or ""),
+            guidance_text=str(validation.get("guidance_text") or "").strip(),
+            refinement_options=list(validation.get("refinement_options") or []),
+        )
         if validation["passes"]:
             guide_session.current_step = "complete"
             guide_session.status = "complete"
@@ -581,7 +655,11 @@ class GuideMeService:
             return
 
         target_field = validation["target_field"]
-        if target_field:
+        if str(validation.get("mode") or "").strip() == "specificity":
+            if target_field in {"who", "task", "context", "output"}:
+                answers["_target_field"] = target_field
+            guide_session.current_step = "refine"
+        elif target_field in {"who", "task", "context", "output"}:
             answers["_target_field"] = target_field
             guide_session.current_step = _step_for_target_field(
                 field=target_field,
@@ -589,7 +667,9 @@ class GuideMeService:
                 requirements=validation["requirements"],
             )
         else:
-            guide_session.current_step = "refine" if _required_sections_complete(answers) else _next_collection_step(answers)
+            guide_session.current_step = str(validation.get("next_step") or "").strip() or (
+                "refine" if _required_sections_complete(answers) else _next_collection_step(answers)
+            )
         guide_session.status = "active"
         guide_session.final_prompt = final_prompt
         guide_session.guidance_text = str(validation.get("guidance_text") or "").strip()
@@ -625,40 +705,69 @@ class GuideMeService:
             user_id=guide_session.user_id_hash,
         )
         requirements = _extract_transformer_requirements(transformed=transformed, score=None)
-        target_field = _select_target_field_for_refinement(requirements=requirements)
+        answers = _sync_answers_from_requirements(answers, requirements)
+        raw_target_field = _select_target_field_for_refinement(requirements=requirements)
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
-        if _required_sections_complete(answers) and not passes:
+        structure_maxed = _all_requirement_scores_maxed(requirements)
+        specificity_decision = _resolve_specificity_decision(
+            answers=answers,
+            requirements=requirements,
+            score=score,
+            default_focus=None if structure_maxed else raw_target_field,
+        )
+        target_field = specificity_decision["focus_field"]
+        if _should_enter_specificity_mode(answers=answers, requirements=requirements) and not passes:
             specificity_refinement = await self._generate_specificity_refinement(
                 answers=answers,
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
                 preferred_focus=target_field if isinstance(target_field, str) else None,
+                retry_due_to_stall=bool(specificity_decision["retry_due_to_stall"]),
             )
             target_field = specificity_refinement.get("focus_field")
             refinement_options = list(specificity_refinement.get("refinement_options") or [])
-            guidance_text = str(specificity_refinement.get("guidance_text") or "").strip()
+            guidance_text = _merge_specificity_guidance(
+                specificity_refinement.get("guidance_text"),
+                retry_due_to_stall=bool(specificity_decision["retry_due_to_stall"]),
+            )
+            mode = "specificity"
         else:
             refinement_options = await self._generate_refinement_options(
-                field=target_field,
+                field=raw_target_field,
                 answers=answers,
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
             )
             guidance_text = _build_refinement_guidance(
-                field=target_field,
+                field=raw_target_field,
                 requirements=requirements,
                 score=score,
             )
+            mode = "structure"
+        next_step = (
+            "complete"
+            if passes
+            else _next_guide_me_step(
+                answers=answers,
+                requirements=requirements,
+                target_field=target_field if isinstance(target_field, str) else None,
+                mode=mode,
+            )
+        )
         return {
             "passes": passes,
             "failing_field": failing_field,
             "target_field": target_field,
             "requirements": requirements,
+            "score": score,
             "guidance_text": guidance_text,
             "refinement_options": refinement_options,
+            "mode": mode,
+            "next_step": next_step,
+            "retry_due_to_stall": bool(specificity_decision["retry_due_to_stall"]),
         }
 
 
@@ -763,6 +872,11 @@ def _serialize_requirement_debug(answers: dict[str, str]) -> dict[str, dict]:
             "improvement_hint": str(requirement.get("improvement_hint") or "").strip() or None,
         }
     return serialized
+
+
+def _serialize_decision_trace(answers: dict[str, str]) -> dict[str, object]:
+    trace = answers.get("_guide_me_trace")
+    return trace if isinstance(trace, dict) else {}
 
 
 def _first_name(display_name: str) -> str:
@@ -994,11 +1108,29 @@ def _build_specificity_refinement_prompt(
     score: dict[str, object] | None,
     final_prompt: str,
     preferred_focus: str | None,
+    retry_due_to_stall: bool,
 ) -> str:
     visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    previous_trace = answers.get("_guide_me_trace")
+    previous_focus = str(previous_trace.get("target_field") or "").strip() if isinstance(previous_trace, dict) else ""
+    previous_guidance = str(previous_trace.get("guidance_text") or "").strip() if isinstance(previous_trace, dict) else ""
+    previous_score = (
+        {
+            "final_score": previous_trace.get("final_score"),
+            "final_llm_score": previous_trace.get("final_llm_score"),
+        }
+        if isinstance(previous_trace, dict)
+        else {}
+    )
     focus_instruction = (
         f"You must focus on the {preferred_focus} section because transformer scoring identifies it as the weakest area.\n"
         if preferred_focus in {"who", "task", "context", "output"}
+        else ""
+    )
+    stall_instruction = (
+        "The previous refinement attempt did not improve the score enough. Do not repeat the same idea in slightly different wording. "
+        "Change strategy while still improving the same weak area, or make the rewrite materially more specific, constrained, and operational.\n"
+        if retry_due_to_stall
         else ""
     )
     return (
@@ -1006,23 +1138,31 @@ def _build_specificity_refinement_prompt(
         "The prompt has labeled Who, Task, Context, and Output sections, but the overall score is still below perfect. "
         "Your job is to identify the single best improvement focus and provide prompt-ready rewrites.\n"
         f"{focus_instruction}"
+        f"{stall_instruction}"
         "Return strict JSON with exactly these keys:\n"
         "- focus_area: one of who, task, context, output, overall\n"
-        "- guidance: a short plain-English sentence that tells the user what is still too weak or vague\n"
+        "- guidance: a short plain-English sentence that names the single biggest remaining issue in the prompt\n"
         "- options: an array of exactly 3 prompt-ready rewrite strings\n"
         "Rules:\n"
         "- Do not ask the user open-ended questions.\n"
-        "- Do not spread suggestions across many areas unless truly necessary.\n"
+        "- Diagnose exactly one primary issue and keep all 3 options focused on that same issue.\n"
         "- Prefer one primary focus area that will most improve specificity.\n"
         "- Each option must be directly insertable into the prompt.\n"
         "- If a preferred focus section is supplied, every option must start with that section label, such as 'Context: ...'.\n"
+        "- If focus_area is 'overall', guidance must still explicitly say which section is too vague, for example 'The Task is still too broad...'.\n"
+        "- Do not simply restate the current prompt text with minor edits.\n"
+        "- Each option should improve precision, constraints, measurable targets, operational usefulness, or decision quality.\n"
+        "- The 3 options must be materially different from one another.\n"
         "- If you focus on task, make it more measurable or outcome-specific.\n"
-        "- If you focus on context, add concrete constraints, qualifications, stakes, or operating conditions.\n"
-        "- If you focus on output, make structure, counts, fields, and delivery expectations more exact.\n"
+        "- If you focus on context, add concrete constraints, qualifications, stakes, operating conditions, quantities, or deadlines.\n"
+        "- If you focus on output, make structure, counts, fields, exclusions, and delivery expectations more exact.\n"
         f"Current prompt: {final_prompt}\n"
         f"Current sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
         f"Transformer requirements: {json.dumps(requirements or {}, ensure_ascii=True)}\n"
-        f"Overall score payload: {json.dumps(score or {}, ensure_ascii=True)}"
+        f"Overall score payload: {json.dumps(score or {}, ensure_ascii=True)}\n"
+        f"Previous focus: {previous_focus or 'None'}\n"
+        f"Previous guidance: {previous_guidance or 'None'}\n"
+        f"Previous score payload: {json.dumps(previous_score, ensure_ascii=True)}"
     )
 
 
@@ -1043,6 +1183,26 @@ def _looks_like_yes(value: str) -> bool:
 
 def _required_sections_complete(answers: dict[str, str]) -> bool:
     return all((answers.get(key) or "").strip() for key in ("who", "task", "context", "output"))
+
+
+def _should_enter_specificity_mode(*, answers: dict[str, str], requirements: dict[str, dict] | None) -> bool:
+    return _required_sections_complete(answers) or _requirements_indicate_completion(requirements)
+
+
+def _sync_answers_from_requirements(answers: dict[str, str], requirements: dict[str, dict] | None) -> dict[str, str]:
+    updated = dict(answers)
+    normalized = requirements if isinstance(requirements, dict) else {}
+    for key in ("who", "task", "context", "output"):
+        requirement = normalized.get(key)
+        if not isinstance(requirement, dict):
+            continue
+        value = str(requirement.get("value") or "").strip()
+        if not value:
+            continue
+        current = str(updated.get(key) or "").strip()
+        if not current or current.casefold() in value.casefold():
+            updated[key] = value
+    return _harmonize_prompt_answers(updated)
 
 
 def _merge_answer_updates(answers: dict[str, str], updates: dict[str, str]) -> dict[str, str]:
@@ -1156,6 +1316,34 @@ def _heuristic_extract_answer_updates(*, current_step: str, answer: str) -> dict
             updates["task"] = trailing.strip()
 
     return updates
+
+
+def _ensure_step_field_capture(*, current_step: str, answer: str, updates: dict[str, str]) -> dict[str, str]:
+    captured = dict(updates)
+    primary_field = _step_to_field(current_step)
+    cleaned = answer.strip()
+    if primary_field in {"who", "task", "context", "output"} and cleaned and not str(captured.get(primary_field) or "").strip():
+        captured[primary_field] = cleaned
+    return captured
+
+
+def _apply_primary_step_answer(*, current_step: str, answer: str, answers: dict[str, str]) -> dict[str, str]:
+    updated = dict(answers)
+    primary_field = _step_to_field(current_step)
+    cleaned = answer.strip()
+    if primary_field not in {"who", "task", "context", "output"} or not cleaned:
+        return updated
+
+    current_value = str(updated.get(primary_field) or "").strip()
+    if not current_value:
+        updated[primary_field] = cleaned
+    elif current_value.casefold() != cleaned.casefold():
+        updated[primary_field] = _combine_section_values(
+            key=primary_field,
+            current=current_value,
+            new_value=cleaned,
+        )
+    return _harmonize_prompt_answers(updated)
 
 
 def _combine_section_values(*, key: str, current: str, new_value: str) -> str:
@@ -1311,6 +1499,8 @@ def _field_to_step(field: str) -> str:
 
 
 def _step_for_target_field(*, field: str, answers: dict[str, str], requirements: dict[str, dict] | None) -> str:
+    if field == "overall":
+        return "refine"
     requirement = (requirements or {}).get(field) if isinstance(requirements, dict) else None
     status = str((requirement or {}).get("status") or "").strip() if isinstance(requirement, dict) else ""
     existing_value = str(answers.get(field) or "").strip()
@@ -1329,6 +1519,202 @@ def _build_score_guidance(score: dict | None) -> str:
         "Your prompt now passes the required labeled sections, but one area is still too weak to reach a perfect score. "
         f"It is currently scoring {final_score}/100{llm_suffix}."
     )
+
+
+def _score_value(score: dict | None) -> tuple[int | None, int | None]:
+    if not isinstance(score, dict):
+        return (None, None)
+    return (_safe_int(score.get("final_score")), _safe_int(score.get("final_llm_score")))
+
+
+def _score_improved(previous_score: dict | None, current_score: dict | None) -> bool:
+    previous_final, previous_llm = _score_value(previous_score)
+    current_final, current_llm = _score_value(current_score)
+    if current_final is not None and previous_final is not None and current_final > previous_final:
+        return True
+    if current_llm is not None and previous_llm is not None and current_llm > previous_llm:
+        return True
+    return False
+
+
+def _rank_specificity_focuses(*, answers: dict[str, str], requirements: dict[str, dict] | None, score: dict[str, object] | None) -> list[str]:
+    normalized = requirements if isinstance(requirements, dict) else {}
+    all_scores_maxed = _all_requirement_scores_maxed(normalized)
+    ordered = ["who", "task", "context", "output"]
+    ranked: list[tuple[tuple[int, int, int, int], str]] = []
+    if not all_scores_maxed:
+        for index, key in enumerate(ordered):
+            requirement = normalized.get(key) if isinstance(normalized.get(key), dict) else {}
+            if not isinstance(requirement, dict):
+                continue
+            status = str(requirement.get("status") or "").strip()
+            heuristic = _safe_int(requirement.get("heuristic_score"))
+            llm = _safe_int(requirement.get("llm_score"))
+            max_score = _safe_int(requirement.get("max_score")) or 25
+            missing_priority = 0 if status in {"missing", "derived"} else 1
+            effective = llm if llm is not None else heuristic
+            ranked.append(((missing_priority, effective if effective is not None else 10**9, heuristic if heuristic is not None else 10**9, index), key))
+
+    if ranked:
+        return [key for _, key in sorted(ranked)]
+
+    heuristic_order = []
+    if _context_needs_specificity(str(answers.get("context") or "")):
+        heuristic_order.append("context")
+    if _task_needs_specificity(str(answers.get("task") or "")):
+        heuristic_order.append("task")
+    if _output_needs_specificity(str(answers.get("output") or "")):
+        heuristic_order.append("output")
+    if _who_needs_specificity(str(answers.get("who") or "")):
+        heuristic_order.append("who")
+    if not heuristic_order and not _is_perfect_score(score):
+        heuristic_order.append("overall")
+    return heuristic_order or ["overall"]
+
+
+def _resolve_specificity_decision(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+    default_focus: str | None,
+) -> dict[str, object]:
+    focus_candidates = _rank_specificity_focuses(answers=answers, requirements=requirements, score=score)
+    focus = default_focus or (focus_candidates[0] if focus_candidates else "overall")
+    previous_trace = answers.get("_guide_me_trace")
+    previous_focus = previous_trace.get("target_field") if isinstance(previous_trace, dict) else None
+    previous_mode = previous_trace.get("mode") if isinstance(previous_trace, dict) else None
+    previous_score = None
+    previous_repeat_count = 0
+    if isinstance(previous_trace, dict):
+        previous_score = {
+            "final_score": previous_trace.get("final_score"),
+            "final_llm_score": previous_trace.get("final_llm_score"),
+        }
+        previous_repeat_count = int(previous_trace.get("repeat_count") or 0)
+    retry_due_to_stall = bool(previous_mode == "specificity" and not _score_improved(previous_score, score))
+    repeat_count = 0
+    if retry_due_to_stall and isinstance(previous_focus, str) and previous_focus == focus:
+        repeat_count = previous_repeat_count + 1
+        for candidate in focus_candidates:
+            if candidate != focus:
+                focus = candidate
+                break
+        else:
+            focus = "overall"
+    elif retry_due_to_stall:
+        repeat_count = previous_repeat_count + 1
+    return {
+        "focus_field": focus,
+        "retry_due_to_stall": retry_due_to_stall,
+        "repeat_count": repeat_count,
+    }
+
+
+def _merge_specificity_guidance(guidance: object, *, retry_due_to_stall: bool) -> str:
+    base = str(guidance or "").strip()
+    if retry_due_to_stall:
+        prefix = "The last refinement did not improve the score, so try a different angle on the same underlying issue. "
+        return f"{prefix}{base}".strip()
+    return base
+
+
+def _all_requirement_scores_maxed(requirements: dict[str, dict] | None) -> bool:
+    normalized = requirements if isinstance(requirements, dict) else {}
+    if not normalized:
+        return False
+    for key in ("who", "task", "context", "output"):
+        requirement = normalized.get(key)
+        if not isinstance(requirement, dict):
+            return False
+        status = str(requirement.get("status") or "").strip()
+        if status != "present":
+            return False
+        heuristic = _safe_int(requirement.get("heuristic_score"))
+        llm = _safe_int(requirement.get("llm_score"))
+        max_score = _safe_int(requirement.get("max_score"))
+        if max_score is None or heuristic is None:
+            return False
+        if heuristic < max_score:
+            return False
+        if llm is not None and llm < max_score:
+            return False
+    return True
+
+
+def _next_guide_me_step(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    target_field: str | None,
+    mode: str,
+) -> str:
+    if mode == "specificity" or _should_enter_specificity_mode(answers=answers, requirements=requirements):
+        return "refine"
+    if target_field:
+        return _step_for_target_field(
+            field=target_field,
+            answers=answers,
+            requirements=requirements,
+        )
+    return _next_collection_step(answers)
+
+
+def _build_decision_trace(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict | None,
+    target_field: str | None,
+    current_step: str,
+    passes: bool,
+    mode: str,
+    guidance_text: str,
+    refinement_options: list[str],
+) -> dict[str, object]:
+    score = score or {}
+    previous_trace = answers.get("_guide_me_trace")
+    repeat_count = (
+        int(previous_trace.get("repeat_count") or 0) + 1
+        if isinstance(previous_trace, dict)
+        and previous_trace.get("target_field") == target_field
+        and previous_trace.get("mode") == mode
+        and not _score_improved(
+            {
+                "final_score": previous_trace.get("final_score"),
+                "final_llm_score": previous_trace.get("final_llm_score"),
+            },
+            score,
+        )
+        else 0
+    )
+    return {
+        "mode": mode,
+        "current_step": current_step,
+        "target_field": target_field,
+        "passes": passes,
+        "required_sections_complete": _required_sections_complete(answers),
+        "requirements_indicate_completion": _requirements_indicate_completion(requirements),
+        "final_score": score.get("final_score"),
+        "final_llm_score": score.get("final_llm_score"),
+        "structural_score": score.get("structural_score"),
+        "guidance_text": guidance_text,
+        "refinement_option_count": len(refinement_options),
+        "repeat_count": repeat_count,
+        "answers_summary": {
+            key: str(answers.get(key) or "").strip() or None
+            for key in ("who", "task", "context", "output", "instructions")
+        },
+        "requirements_summary": {
+            key: {
+                "status": (requirements or {}).get(key, {}).get("status") if isinstance((requirements or {}).get(key), dict) else None,
+                "heuristic_score": _safe_int((requirements or {}).get(key, {}).get("heuristic_score")) if isinstance((requirements or {}).get(key), dict) else None,
+                "llm_score": _safe_int((requirements or {}).get(key, {}).get("llm_score")) if isinstance((requirements or {}).get(key), dict) else None,
+                "max_score": _safe_int((requirements or {}).get(key, {}).get("max_score")) if isinstance((requirements or {}).get(key), dict) else None,
+            }
+            for key in ("who", "task", "context", "output")
+        },
+    }
 
 
 def _select_specificity_focus(
@@ -1442,13 +1828,15 @@ def _build_specificity_mode_guidance(
 def _is_perfect_score(score: dict | None) -> bool:
     if not score:
         return True
-    final_score = score.get("final_score")
-    final_llm_score = score.get("final_llm_score")
-    if final_score != 100:
+    final_score = _safe_int(score.get("final_score"))
+    final_llm_score = _safe_int(score.get("final_llm_score"))
+    if final_score is None:
+        return False
+    if final_score < 95:
         return False
     if final_llm_score is None:
         return True
-    return final_llm_score == 100
+    return final_llm_score >= 95
 
 
 def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
