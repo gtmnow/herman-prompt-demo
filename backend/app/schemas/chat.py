@@ -272,6 +272,8 @@ class SessionBootstrapResponse(BaseModel):
     user_id_hash: str
     display_name: str
     tenant_id: str
+    profile_version: str | None = None
+    profile_label: str | None = None
     features: dict[str, bool] = Field(default_factory=dict)
     branding: dict[str, str] = Field(default_factory=dict)
     debug: dict[str, bool | int | None] = Field(default_factory=dict)

@@ -12,6 +12,7 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.schemas.chat import SessionBootstrapResponse
+from app.services.transformer_client import TransformerClient
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> AuthenticatedUser:
@@ -25,7 +26,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> Authen
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
-def build_bootstrap_response(
+async def build_bootstrap_response(
     authorization: str | None = Header(default=None),
     x_herman_launch_token: str | None = Header(default=None),
     launch_token: str | None = Query(default=None),
@@ -47,6 +48,18 @@ def build_bootstrap_response(
 
     access_token, expires_at = issue_session_token(user)
     selected_theme = theme if theme in {"dark", "light"} else settings.auth_default_theme
+    resolved_profile = await TransformerClient().fetch_resolved_profile(
+        user_id=user.user_id_hash,
+        summary_type=summary_type,
+    )
+    profile_version = (
+        _read_resolved_profile_field(resolved_profile, "profile_version")
+        or user.profile_version
+    )
+    profile_label = (
+        _format_profile_label(profile_version)
+        or user.profile_label
+    )
 
     return SessionBootstrapResponse(
         access_token=access_token,
@@ -55,6 +68,8 @@ def build_bootstrap_response(
         user_id_hash=user.user_id_hash,
         display_name=user.display_name,
         tenant_id=user.tenant_id,
+        profile_version=profile_version,
+        profile_label=profile_label,
         features={
             "show_details": show_details,
             "attachments": True,
@@ -105,3 +120,20 @@ def _read_bearer_token(authorization: str | None) -> str | None:
         return None
 
     return value.strip()
+
+
+def _read_resolved_profile_field(profile: dict[str, object] | None, key: str) -> str | None:
+    if not isinstance(profile, dict):
+        return None
+    value = str(profile.get(key, "")).strip()
+    return value or None
+
+
+def _format_profile_label(profile_version: str | None) -> str | None:
+    if not profile_version:
+        return None
+    if profile_version.startswith("summary_type_"):
+        return f"Type {profile_version.removeprefix('summary_type_')}"
+    if profile_version == "generic_default":
+        return "Generic Default"
+    return profile_version.replace("_", " ").replace("-", " ").title()

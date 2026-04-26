@@ -85,6 +85,8 @@ type SessionBootstrap = {
   user_id_hash: string;
   display_name: string;
   tenant_id: string;
+  profile_version?: string | null;
+  profile_label?: string | null;
   features: {
     show_details?: boolean;
     attachments?: boolean;
@@ -99,6 +101,11 @@ type SessionBootstrap = {
     transform_enabled?: boolean;
     summary_type?: number | null;
   };
+};
+
+type TransformerProfileMetadata = {
+  profileVersion: string | null;
+  personaSource: string | null;
 };
 
 function createConversationId() {
@@ -141,6 +148,10 @@ export function App() {
   const [conversationId, setConversationId] = useState(createConversationId);
   const [transformerConversation, setTransformerConversation] = useState<TransformerConversation | null>(null);
   const [transformerScoring, setTransformerScoring] = useState<TransformerScoring | null>(null);
+  const [transformerProfile, setTransformerProfile] = useState<TransformerProfileMetadata>({
+    profileVersion: null,
+    personaSource: null,
+  });
   const [guideMeSession, setGuideMeSession] = useState<GuideMeSession | null>(null);
   const [guideMeOpen, setGuideMeOpen] = useState(false);
   const [guideMeBusy, setGuideMeBusy] = useState(false);
@@ -187,6 +198,10 @@ export function App() {
         setTransformEnabled(payload.debug.transform_enabled ?? launchParams.transformEnabled);
         setSummaryType(payload.debug.summary_type ?? launchParams.summaryType);
         setTheme(payload.branding.theme ?? launchParams.theme);
+        setTransformerProfile({
+          profileVersion: payload.profile_version ?? null,
+          personaSource: "bootstrap",
+        });
       } catch (bootstrapError) {
         if (!cancelled) {
           setSession(null);
@@ -520,6 +535,8 @@ export function App() {
             scoring?: TransformerScoring | null;
             coaching_tip?: string | null;
             blocking_message?: string | null;
+            profile_version?: string | null;
+            persona_source?: string | null;
           };
         };
       };
@@ -556,6 +573,10 @@ export function App() {
       setConversationId(payload.conversation_id.replace(/^conv_/, ""));
       setTransformerConversation(payload.metadata.transformer.conversation ?? null);
       setTransformerScoring(payload.metadata.transformer.scoring ?? null);
+      setTransformerProfile({
+        profileVersion: payload.metadata.transformer.profile_version ?? null,
+        personaSource: payload.metadata.transformer.persona_source ?? null,
+      });
       if (payload.metadata.transformer.result_type === "coaching") {
         setConversationNotice(null);
       } else if (payload.metadata.transformer.result_type === "blocked") {
@@ -719,6 +740,10 @@ export function App() {
     setGuideMeOpen(false);
     setGuideMeAnswer("");
     setGuideMeError(null);
+    setTransformerProfile((current) => ({
+      profileVersion: session?.profile_version ?? current.profileVersion ?? null,
+      personaSource: session?.profile_version ? "bootstrap" : null,
+    }));
     setConversationNotice(
       nextTransformEnabled
         ? "Conversation reset. Prompt Transformer is now on."
@@ -741,6 +766,10 @@ export function App() {
     setGuideMeOpen(false);
     setGuideMeAnswer("");
     setGuideMeError(null);
+    setTransformerProfile((current) => ({
+      profileVersion: nextSummaryType === null ? session?.profile_version ?? current.profileVersion ?? null : null,
+      personaSource: nextSummaryType === null && session?.profile_version ? "bootstrap" : null,
+    }));
     setConversationNotice(
       nextSummaryType === null
         ? "Conversation reset. Using the selected user's default profile."
@@ -763,6 +792,10 @@ export function App() {
     setGuideMeOpen(false);
     setGuideMeAnswer("");
     setGuideMeError(null);
+    setTransformerProfile((current) => ({
+      profileVersion: session?.profile_version ?? current.profileVersion ?? null,
+      personaSource: session?.profile_version ? "bootstrap" : null,
+    }));
     setConversationNotice(`Conversation reset. Using ${nextEnforcementLevel} enforcement.`);
   }
 
@@ -865,6 +898,10 @@ export function App() {
       setGuideMeAnswer("");
       setGuideMeError(null);
       setGuideMeOpen(false);
+      setTransformerProfile((current) => ({
+        profileVersion: session?.profile_version ?? current.profileVersion ?? null,
+        personaSource: session?.profile_version ? "bootstrap" : null,
+      }));
       if (isMobile) {
         setSidebarCollapsed(true);
       }
@@ -965,6 +1002,10 @@ export function App() {
       setGuideMeOpen(false);
       setGuideMeAnswer("");
       setGuideMeError(null);
+      setTransformerProfile({
+        profileVersion: session?.profile_version ?? null,
+        personaSource: session?.profile_version ? "bootstrap" : null,
+      });
       if (isMobile) {
         setSidebarCollapsed(true);
       }
@@ -1017,6 +1058,7 @@ export function App() {
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
+          defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
           enforcementLevel={enforcementLevel}
           scoring={transformerScoring ? {
             initialLlmScore: transformerScoring.initial_llm_score,
@@ -1047,6 +1089,7 @@ export function App() {
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
+          defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
           enforcementLevel={enforcementLevel}
           scoring={transformerScoring ? {
             initialLlmScore: transformerScoring.initial_llm_score,
@@ -1076,6 +1119,7 @@ export function App() {
         showDetails={showDetails}
         transformEnabled={transformEnabled}
         summaryType={summaryType}
+        defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
         enforcementLevel={enforcementLevel}
         scoring={transformerScoring ? {
           initialLlmScore: transformerScoring.initial_llm_score,
@@ -1285,6 +1329,39 @@ function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
     finalPrompt: session.final_prompt ?? null,
     readyToInsert: session.ready_to_insert,
   };
+}
+
+function formatDefaultProfileLabel(
+  transformerProfile: TransformerProfileMetadata,
+  session: SessionBootstrap | null,
+  summaryType: number | null,
+) {
+  if (summaryType !== null) {
+    return `Type ${summaryType}`;
+  }
+
+  const sessionLabel = session?.profile_label?.trim();
+  if (sessionLabel) {
+    return sessionLabel;
+  }
+
+  const raw = (transformerProfile.profileVersion ?? session?.profile_version ?? "").trim();
+  if (!raw) {
+    return "Loaded Profile";
+  }
+
+  if (raw.startsWith("summary_type_")) {
+    const suffix = raw.slice("summary_type_".length);
+    return `Type ${suffix}`;
+  }
+
+  if (raw === "generic_default") {
+    return "Generic Default";
+  }
+
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 async function extractErrorMessage(response: Response, fallbackMessage: string) {

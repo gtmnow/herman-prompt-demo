@@ -23,6 +23,8 @@ class AuthenticatedUser:
     display_name: str
     tenant_id: str
     auth_mode: str
+    profile_version: str | None = None
+    profile_label: str | None = None
 
 
 def issue_session_token(user: AuthenticatedUser) -> tuple[str, int]:
@@ -34,6 +36,8 @@ def issue_session_token(user: AuthenticatedUser) -> tuple[str, int]:
         "external_user_id": user.external_user_id,
         "tenant_id": user.tenant_id,
         "user_id_hash": user.user_id_hash,
+        "profile_version": user.profile_version,
+        "profile_label": user.profile_label,
     }
     return _sign_payload(payload, settings.auth_session_secret), expires_at
 
@@ -50,6 +54,8 @@ def authenticate_session_token(token: str) -> AuthenticatedUser:
         display_name=_read_required(payload, "display_name"),
         tenant_id=_read_required(payload, "tenant_id"),
         auth_mode=_read_required(payload, "auth_mode"),
+        profile_version=_read_optional(payload, "profile_version"),
+        profile_label=_read_optional(payload, "profile_label"),
     )
 
 
@@ -67,6 +73,8 @@ def resolve_launch_user(token: str) -> AuthenticatedUser:
 
     display_name = str(payload.get("display_name") or payload.get("name") or "Authenticated User").strip()
     tenant_id = str(payload.get("tenant_id") or settings.auth_demo_tenant_id).strip()
+    profile_version = _normalize_optional_claim(payload.get("profile_version"))
+    profile_label = _normalize_optional_claim(payload.get("profile_label") or payload.get("profile_name"))
 
     return AuthenticatedUser(
         external_user_id=external_user_id,
@@ -74,6 +82,8 @@ def resolve_launch_user(token: str) -> AuthenticatedUser:
         display_name=display_name or "Authenticated User",
         tenant_id=tenant_id or settings.auth_demo_tenant_id,
         auth_mode="signed_launch",
+        profile_version=profile_version,
+        profile_label=profile_label,
     )
 
 
@@ -137,6 +147,15 @@ def _read_required(payload: dict[str, Any], key: str) -> str:
     if not value:
         raise AuthError(f"Token is missing {key}.")
     return value
+
+
+def _read_optional(payload: dict[str, Any], key: str) -> str | None:
+    return _normalize_optional_claim(payload.get(key))
+
+
+def _normalize_optional_claim(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
 
 
 def _b64url_encode(value: bytes) -> str:

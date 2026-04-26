@@ -6,6 +6,7 @@ type HeaderProps = {
   showDetails: boolean;
   transformEnabled: boolean;
   summaryType: number | null;
+  defaultProfileLabel: string;
   enforcementLevel: "none" | "low" | "moderate" | "full";
   scoring: {
     initialLlmScore?: number | null;
@@ -26,6 +27,7 @@ export function Header({
   showDetails,
   transformEnabled,
   summaryType,
+  defaultProfileLabel,
   enforcementLevel,
   scoring,
   theme,
@@ -74,7 +76,7 @@ export function Header({
               onChangeSummaryType(nextValue ? Number(nextValue) : null);
             }}
           >
-            <option value="">User Default</option>
+            <option value="">{defaultProfileLabel}</option>
             {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => (
               <option key={value} value={value}>
                 Type {value}

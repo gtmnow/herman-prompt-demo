@@ -284,7 +284,11 @@ class GuideMeService:
         return GuideMePersonalization(
             first_name=_first_name(user.display_name),
             typical_ai_usage=typical_ai_usage,
-            profile_label=f"Profile Type {summary_type}" if summary_type is not None else "User Default",
+            profile_label=_resolved_profile_label(
+                summary_type=summary_type,
+                profile_version=user.profile_version,
+                profile_label=user.profile_label,
+            ),
             recent_examples=recent_prompts[:3],
         ).model_dump()
 
@@ -1053,6 +1057,26 @@ def _first_name(display_name: str) -> str:
     if not cleaned:
         return "there"
     return cleaned.split(" ", 1)[0]
+
+
+def _resolved_profile_label(
+    *,
+    summary_type: int | None,
+    profile_version: str | None,
+    profile_label: str | None,
+) -> str:
+    if summary_type is not None:
+        return f"Profile Type {summary_type}"
+    if profile_label and profile_label.strip():
+        return profile_label.strip()
+    if profile_version and profile_version.strip():
+        raw = profile_version.strip()
+        if raw.startswith("summary_type_"):
+            return f"Profile Type {raw.removeprefix('summary_type_')}"
+        if raw == "generic_default":
+            return "Generic Default"
+        return raw.replace("_", " ").replace("-", " ").title()
+    return "Loaded Profile"
 
 
 def _infer_typical_ai_usage(recent_prompts: list[str]) -> str:

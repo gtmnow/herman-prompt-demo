@@ -74,3 +74,21 @@ class TransformerClient:
             )
         except RuntimeError:
             return None
+
+    async def fetch_resolved_profile(
+        self,
+        *,
+        user_id: str,
+        summary_type: int | None = None,
+    ) -> dict[str, Any] | None:
+        params: dict[str, Any] = {"user_id": user_id}
+        if summary_type is not None:
+            params["summary_type"] = summary_type
+        try:
+            return await self._request(
+                "GET",
+                "/api/profiles/resolve",
+                params=params,
+            )
+        except RuntimeError:
+            return None
