@@ -62,11 +62,16 @@ Its intended behavior is:
    - `Context:`
    - `Output:`
    - `Additional Information:`
-9. Mark the wizard complete only when no section still needs improvement
+9. Once structure is complete, switch into specificity mode instead of returning to section-collection prompts
+10. Keep refinement focused on exactly one remaining issue at a time
+11. Re-score after every user submission and change strategy if a refinement does not improve the score
+12. Mark the wizard complete when the validated prompt reaches the practical stop threshold
 
 Important rules:
 
+- Prompt Transformer is the sole scoring authority. Herman Prompt must not invent its own field scoring model.
 - If an original prompt is provided, Guide Me should start from that prompt instead of starting with the generic intro flow.
+- If the user answers `No` to the opening question, the wizard must go directly to `Today’s Need` and must not run completion logic.
 - Guide Me should also consider the current conversation context when interpreting that prompt.
 - Guide Me should never ask for sections that already score the maximum points.
 - Normal collection steps should show one clear prompt only; extra guidance panels should be reserved for `Refine`.
@@ -75,7 +80,86 @@ Important rules:
 - `Refine` must only appear when there is a concrete weak area or score gap to fix.
 - Refinement suggestions must be tied to the weak field.
 - Refinement suggestions must be prompt-ready content, not user-facing advice.
-- The completion target is a validated prompt that can reach `100/100` when transformer and LLM scoring are available.
+- Contextual improvement suggestions should be AI-generated from the current prompt, score state, and weak area whenever possible.
+- Hard-coded or template suggestions should exist only as a fallback when the AI suggestion path fails or returns unusable output.
+- If the prompt is already strong but still below the stop threshold, the wizard should explain the remaining specificity gap in plain language instead of sending the user back through collection prompts.
+- Freeform refinements typed by the user must be applied as prompt updates, not only as numbered option picks.
+- Numbered option picking should only happen when the user's answer is actually a list of option numbers, not when a freeform refinement happens to contain digits.
+- Task-aware examples should reflect the user's actual prompt domain instead of falling back to generic "subject-matter expert" language.
+- The practical completion target is a validated prompt that reaches at least `95/100` overall and, when available, `95/100` on LLM scoring.
+
+### Specificity Mode
+
+Once Prompt Transformer shows the prompt is structurally complete, Guide Me should stop asking section-collection questions and enter a specificity-only refinement path.
+
+Specificity mode should:
+
+- stay in `Refine` instead of returning to `Who`, `Task`, `Context`, or `Output`
+- select exactly one remaining issue to improve
+- prefer the weakest transformer-scored field when a real field gap exists
+- fall back to the single strongest whole-prompt specificity issue when all field scores are already maxed
+- detect repeated no-delta refinements and change strategy instead of repeating the same suggestion pattern
+- keep the guidance, rewrite options, and current focus field aligned so the wizard does not drift from one weak area to another
+
+### Debugging And Regression Coverage
+
+Guide Me now includes:
+
+- a backend decision trace attached to the session payload
+- a `Requirement Debug` and `Decision Trace` view under `Show Details`
+- unit tests for state-machine logic
+- service-level smoke tests
+- a scenario runner for repeatable local Guide Me flows
+
+Key local test coverage lives in:
+
+- `backend/tests/test_guide_me_logic.py`
+- `backend/tests/test_guide_me_smoke.py`
+- `backend/tests/run_guide_me_scenarios.py`
+
+These tools are intended to replace screenshot-only debugging with reproducible backend traces and fixtures.
+
+### Scoring Contract
+
+Scoring ownership is split cleanly:
+
+- `Prompt Transformer` computes requirement status and scores
+- `Herman Prompt` displays those values and routes the Guide Me workflow from them
+
+Guide Me must not derive its own field scores from local heuristics. If Herman Prompt needs section-level scoring, Prompt Transformer must return it.
+
+Expected Prompt Transformer response shape for field scoring:
+
+```json
+{
+  "conversation": {
+    "requirements": {
+      "who": {
+        "status": "present",
+        "heuristic_score": 25,
+        "llm_score": 22,
+        "max_score": 25,
+        "reason": "Role is specific.",
+        "improvement_hint": null
+      },
+      "task": {
+        "status": "derived",
+        "heuristic_score": 14,
+        "llm_score": 12,
+        "max_score": 25,
+        "reason": "Task is too broad.",
+        "improvement_hint": "State the exact outcome."
+      }
+    }
+  }
+}
+```
+
+Herman Prompt should:
+
+- render per-field score and status directly from transformer output
+- choose the next Guide Me step from transformer field results
+- avoid showing per-field numeric scores when transformer has not returned them
 
 ### Provider Abstraction
 

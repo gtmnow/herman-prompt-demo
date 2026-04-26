@@ -33,6 +33,8 @@ export type GuideMeSession = {
   readyToInsert: boolean;
 };
 
+type GuideMeUsePromptMode = "final" | "as-is";
+
 type GuideMePanelProps = {
   answer: string;
   busy: boolean;
@@ -46,7 +48,7 @@ type GuideMePanelProps = {
   onLaunch: () => void;
   onRestart: () => void;
   onSubmit: () => void;
-  onUsePrompt: () => void;
+  onUsePrompt: (mode: GuideMeUsePromptMode) => void;
 };
 
 export function GuideMePanel({
@@ -65,16 +67,21 @@ export function GuideMePanel({
   onUsePrompt,
 }: GuideMePanelProps) {
   const [showPromptPreview, setShowPromptPreview] = useState(false);
+  const [confirmUseAsIs, setConfirmUseAsIs] = useState(false);
+
+  const scoreSummary = getGuideMeScoreSummary(session?.decisionTrace);
 
   useEffect(() => {
     if (!open) {
       setShowPromptPreview(false);
+      setConfirmUseAsIs(false);
     }
   }, [open]);
 
   useEffect(() => {
     if (!session?.finalPrompt) {
       setShowPromptPreview(false);
+      setConfirmUseAsIs(false);
     }
   }, [session?.finalPrompt]);
 
@@ -144,8 +151,40 @@ export function GuideMePanel({
             {showPromptPreview && session.finalPrompt ? (
               <div className="guide-me-preview-modal" role="dialog" aria-modal="false" aria-label="Current prompt draft">
                 <div className="guide-me-preview-header">
-                  <div className="guide-me-meta-label">
-                    {session.readyToInsert ? "Formatted prompt" : "Current prompt draft"}
+                  <div className="guide-me-preview-title-row">
+                    <div className="guide-me-meta-label">
+                      {session.readyToInsert ? "Formatted prompt" : "Current prompt draft"}
+                    </div>
+                    {scoreSummary ? (
+                      <div className="guide-me-score-chip" aria-label="Current prompt scores">
+                        <span className="guide-me-score-chip-label">Score</span>
+                        <span className="guide-me-score-chip-value">{scoreSummary.finalScore}/100</span>
+                        {scoreSummary.finalLlmScore !== null ? (
+                          <>
+                            <span className="guide-me-score-chip-separator">•</span>
+                            <span className="guide-me-score-chip-label">AI</span>
+                            <span className="guide-me-score-chip-value">{scoreSummary.finalLlmScore}/100</span>
+                          </>
+                        ) : null}
+                        {scoreSummary.structuralScore !== null ? (
+                          <>
+                            <span className="guide-me-score-chip-separator">•</span>
+                            <span className="guide-me-score-chip-label">Structure</span>
+                            <span className="guide-me-score-chip-value">{scoreSummary.structuralScore}/100</span>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {!session.readyToInsert ? (
+                      <button
+                        className="feedback-button"
+                        disabled={busy}
+                        type="button"
+                        onClick={() => setConfirmUseAsIs(true)}
+                      >
+                        Use AS-IS
+                      </button>
+                    ) : null}
                   </div>
                   <button
                     className="feedback-button"
@@ -156,6 +195,31 @@ export function GuideMePanel({
                     Hide
                   </button>
                 </div>
+                {confirmUseAsIs ? (
+                  <div className="guide-me-confirm-panel">
+                    <div className="guide-me-confirm-text">
+                      Use the current draft as-is and move it into the main composer?
+                    </div>
+                    <div className="guide-me-confirm-actions">
+                      <button
+                        className="send-button"
+                        disabled={busy}
+                        type="button"
+                        onClick={() => onUsePrompt("as-is")}
+                      >
+                        Yes, use this prompt
+                      </button>
+                      <button
+                        className="feedback-button"
+                        disabled={busy}
+                        type="button"
+                        onClick={() => setConfirmUseAsIs(false)}
+                      >
+                        Keep editing
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
               </div>
             ) : null}
@@ -198,7 +262,7 @@ export function GuideMePanel({
                 </button>
               ) : null}
               {session.readyToInsert ? (
-                <button className="send-button" type="button" onClick={onUsePrompt}>
+                <button className="send-button" type="button" onClick={() => onUsePrompt("final")}>
                   Use Prompt
                 </button>
               ) : (
@@ -231,6 +295,30 @@ export function GuideMePanel({
       </section>
     </div>
   );
+}
+
+function getGuideMeScoreSummary(decisionTrace?: Record<string, unknown>) {
+  if (!decisionTrace) {
+    return null;
+  }
+
+  const finalScore = asNumber(decisionTrace.final_score);
+  const finalLlmScore = asNumber(decisionTrace.final_llm_score);
+  const structuralScore = asNumber(decisionTrace.structural_score);
+
+  if (finalScore === null && finalLlmScore === null && structuralScore === null) {
+    return null;
+  }
+
+  return {
+    finalScore,
+    finalLlmScore,
+    structuralScore,
+  };
+}
+
+function asNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function GuideIndicators({

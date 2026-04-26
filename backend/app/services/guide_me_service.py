@@ -150,7 +150,12 @@ class GuideMeService:
                 raise ValueError("Guide Me session is already complete.")
 
             if current_step == "intro":
-                guide_session.answers = answers
+                guide_session.answers = await self._refresh_contextual_step_examples(
+                    answers=answers,
+                    personalization=guide_session.personalization or {},
+                    requirements=None,
+                    score=None,
+                )
                 guide_session.final_prompt = _compose_final_prompt(answers)
                 guide_session.updated_at = datetime.utcnow()
                 session.commit()
@@ -193,7 +198,27 @@ class GuideMeService:
                 )
 
             guide_session.final_prompt = _compose_final_prompt(answers)
-            guide_session.answers = answers
+            trace = answers.get("_guide_me_trace")
+            score_for_examples = (
+                {
+                    "final_score": trace.get("final_score"),
+                    "final_llm_score": trace.get("final_llm_score"),
+                    "structural_score": trace.get("structural_score"),
+                }
+                if isinstance(trace, dict)
+                else None
+            )
+            requirements_for_examples = (
+                answers.get("_transformer_requirements")
+                if isinstance(answers.get("_transformer_requirements"), dict)
+                else None
+            )
+            guide_session.answers = await self._refresh_contextual_step_examples(
+                answers=answers,
+                personalization=guide_session.personalization or {},
+                requirements=requirements_for_examples,
+                score=score_for_examples,
+            )
             guide_session.updated_at = datetime.utcnow()
             session.commit()
             session.refresh(guide_session)
@@ -363,6 +388,54 @@ class GuideMeService:
 
     async def _generate_final_prompt(self, *, answers: dict[str, str], personalization: dict) -> str:
         return _compose_final_prompt(answers)
+
+    async def _generate_contextual_step_examples(
+        self,
+        *,
+        answers: dict[str, str],
+        personalization: dict,
+        requirements: dict[str, dict] | None,
+        score: dict[str, object] | None,
+    ) -> dict[str, str]:
+        fallback = _fallback_contextual_step_examples(
+            answers=answers,
+            personalization=GuideMePersonalization.model_validate(personalization),
+        )
+        try:
+            prompt = _build_contextual_step_examples_prompt(
+                answers=answers,
+                personalization=personalization,
+                requirements=requirements,
+                score=score,
+                final_prompt=_compose_final_prompt(answers),
+            )
+            response_text = await self.llm_client.generate_text(prompt=prompt)
+            payload = _extract_json_object(response_text)
+            examples: dict[str, str] = {}
+            for key in ("describe_need", "who", "why", "how", "what"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    examples[key] = value.strip()
+            return {**fallback, **examples}
+        except Exception:
+            return fallback
+
+    async def _refresh_contextual_step_examples(
+        self,
+        *,
+        answers: dict[str, str],
+        personalization: dict,
+        requirements: dict[str, dict] | None,
+        score: dict[str, object] | None,
+    ) -> dict[str, str]:
+        updated = dict(answers)
+        updated["_contextual_step_examples"] = await self._generate_contextual_step_examples(
+            answers=updated,
+            personalization=personalization,
+            requirements=requirements,
+            score=score,
+        )
+        return updated
 
     async def _generate_refinement_options(
         self,
@@ -543,10 +616,16 @@ class GuideMeService:
         enforcement_level: str | None,
         personalization: dict,
         chat_context: str,
-    ) -> dict:
+        ) -> dict:
         if not source_prompt:
+            answers = await self._refresh_contextual_step_examples(
+                answers={},
+                personalization=personalization,
+                requirements=None,
+                score=None,
+            )
             return {
-                "answers": {},
+                "answers": answers,
                 "current_step": "intro",
                 "guidance_text": "",
                 "refinement_options": [],
@@ -606,6 +685,12 @@ class GuideMeService:
                     guidance_text="",
                     refinement_options=[],
                 )
+                answers = await self._refresh_contextual_step_examples(
+                    answers=answers,
+                    personalization=personalization,
+                    requirements=requirements,
+                    score=score,
+                )
                 return {
                     "answers": answers,
                     "current_step": current_step,
@@ -626,6 +711,12 @@ class GuideMeService:
                         mode="specificity",
                         guidance_text="",
                         refinement_options=[],
+                    )
+                    answers = await self._refresh_contextual_step_examples(
+                        answers=answers,
+                        personalization=personalization,
+                        requirements=requirements,
+                        score=score,
                     )
                     return {
                         "answers": answers,
@@ -662,6 +753,12 @@ class GuideMeService:
                         refinement_options=refinement_options,
                     )
                     answers["_target_field"] = target_field
+                    answers = await self._refresh_contextual_step_examples(
+                        answers=answers,
+                        personalization=personalization,
+                        requirements=requirements,
+                        score=score,
+                    )
                     return {
                         "answers": answers,
                         "current_step": current_step,
@@ -673,6 +770,12 @@ class GuideMeService:
             pass
 
         next_step = _next_collection_step(answers)
+        answers = await self._refresh_contextual_step_examples(
+            answers=answers,
+            personalization=personalization,
+            requirements=None,
+            score=None,
+        )
         return {
             "answers": answers,
             "current_step": next_step,
@@ -838,34 +941,34 @@ def _question_for_session(
             f"Hi {personalization.first_name}, I assume you typically want to {personalization.typical_ai_usage}. Is this what you need today, Yes or No?",
         )
     if current_step == "describe_need":
-        example = _build_task_example(answers)
+        example = _contextual_step_example("describe_need", answers, personalization)
         return (
             "Today’s Need",
             _question_prefix(field="task", answers=answers)
             + f'Please describe what you need today, such as "{example}"'
         )
     if current_step == "who":
-        example = _build_who_example(personalization, answers)
+        example = _contextual_step_example("who", answers, personalization)
         return (
             "Who Am I Today?",
             _question_prefix(field="who", answers=answers)
             + f'Please type in my Role and Objective. Tell me who I should act like and what I need to accomplish, such as "{example}"',
         )
     if current_step == "why":
-        example = _build_why_example(personalization, answers)
+        example = _contextual_step_example("why", answers, personalization)
         return (
             "Why Do You Need Me?",
             f'Please type in my Instructions. Provide specific guidelines for your task or question, such as "{example}"',
         )
     if current_step == "how":
-        example = _build_context_example(answers)
+        example = _contextual_step_example("how", answers, personalization)
         return (
             "How Can I Accomplish This?",
             _question_prefix(field="context", answers=answers)
             + f'Please type in my Reasoning Steps and context. Explain how you want me to approach this and add any background I should know, such as "{example}"',
         )
     if current_step == "what":
-        example = _build_output_example(answers)
+        example = _contextual_step_example("what", answers, personalization)
         return (
             "What Is My Output?",
             _question_prefix(field="output", answers=answers)
@@ -884,6 +987,19 @@ def _question_for_session(
             )
         return ("Prompt Ready", "Your guided prompt is ready. Review it and send it back to the main composer when you’re ready.")
     return (None, None)
+
+
+def _contextual_step_example(
+    step: str,
+    answers: dict[str, str],
+    personalization: GuideMePersonalization,
+) -> str:
+    stored = answers.get("_contextual_step_examples")
+    if isinstance(stored, dict):
+        example = stored.get(step)
+        if isinstance(example, str) and example.strip():
+            return example.strip()
+    return _fallback_contextual_step_examples(answers=answers, personalization=personalization).get(step, "")
 
 
 def _build_requirement_indicators(answers: dict[str, str]) -> dict[str, GuideMeRequirementIndicator]:
@@ -1041,6 +1157,20 @@ def _build_output_example(answers: dict[str, str]) -> str:
     return f"Respond in this chat with {format_hint} about {task}."
 
 
+def _fallback_contextual_step_examples(
+    *,
+    answers: dict[str, str],
+    personalization: GuideMePersonalization,
+) -> dict[str, str]:
+    return {
+        "describe_need": _build_task_example(answers),
+        "who": _build_who_example(personalization, answers),
+        "why": _build_why_example(personalization, answers),
+        "how": _build_context_example(answers),
+        "what": _build_output_example(answers),
+    }
+
+
 def _build_task_example(answers: dict[str, str]) -> str:
     context = _clean_sentence_fragment(answers.get("context") or "")
     who = _clean_sentence_fragment(answers.get("who") or "")
@@ -1149,6 +1279,39 @@ def _build_answer_extraction_prompt(
         f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
         f"Recent chat context: {chat_context or 'None'}\n"
         f"User answer: {answer}"
+    )
+
+
+def _build_contextual_step_examples_prompt(
+    *,
+    answers: dict[str, str],
+    personalization: dict,
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+    final_prompt: str,
+) -> str:
+    visible_answers = {key: value for key, value in answers.items() if not str(key).startswith("_")}
+    chat_context = str(answers.get("_chat_context") or "").strip()
+    return (
+        "You are helping a prompt-construction wizard produce contextual step examples for the next user input. "
+        "Return strict JSON with exactly these keys: describe_need, who, why, how, what. "
+        "Each value must be a single concise example string the user could copy or adapt. "
+        "These are examples, not instructions. Do not explain your reasoning. Do not output markdown. "
+        "The wizard structure is deterministic, but the example content must be tailored to the user's actual prompt, weak areas, score state, and domain.\n"
+        "Rules:\n"
+        "- describe_need: write a first-person example that starts naturally like 'I need...' or 'Help me...'.\n"
+        "- who: write a role-and-objective example that starts with 'You are...'. Avoid generic roles like 'subject-matter expert' unless the prompt truly lacks domain detail.\n"
+        "- why: write a short instruction-style example that gives practical guidance or guardrails.\n"
+        "- how: write a context example that adds concrete background, constraints, audience, or operating details.\n"
+        "- what: write an output-format example that starts with 'Respond...' or 'Format...'.\n"
+        "- Keep every example specific, domain-aware, and more useful than a canned template.\n"
+        "- If Prompt Transformer identifies a weak field, make the corresponding example especially strong and concrete.\n"
+        f"Current prompt: {final_prompt or 'None yet'}\n"
+        f"Current sections: {json.dumps(visible_answers, ensure_ascii=True)}\n"
+        f"Profile context: {json.dumps(personalization, ensure_ascii=True)}\n"
+        f"Recent chat context: {chat_context or 'None'}\n"
+        f"Transformer requirements: {json.dumps(requirements or {}, ensure_ascii=True)}\n"
+        f"Overall score payload: {json.dumps(score or {}, ensure_ascii=True)}"
     )
 
 

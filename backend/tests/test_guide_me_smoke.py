@@ -33,6 +33,27 @@ class FakeConversationService:
 
 class FakeLlmClient:
     async def generate_text(self, *, prompt: str, conversation_history: list[Any] | None = None) -> str:
+        if "Return strict JSON with exactly these keys: describe_need, who, why, how, what." in prompt:
+            if "ram simms" in prompt.lower() or "supplier" in prompt.lower():
+                return json.dumps(
+                    {
+                        "describe_need": "I need help finding a cheaper source for RAM SIMMS that can still meet my application requirements.",
+                        "who": "You are an experienced discrete parts sourcing specialist helping me find a cheaper source for RAM SIMMS.",
+                        "why": "Prioritize reliable suppliers, realistic pricing, and compatibility with the application requirements.",
+                        "how": "This is for a parts-buying decision, so include current availability, compatibility constraints, and any sourcing risks I should consider.",
+                        "what": "Respond in this chat with a concise sourcing summary, a comparison table, and clear next-step recommendations.",
+                    }
+                )
+            return json.dumps(
+                {
+                    "describe_need": "I need a more specific, higher-quality prompt for the task I am working on.",
+                    "who": "You are an experienced domain specialist helping me improve the quality of this prompt.",
+                    "why": "Keep the response practical, specific, and focused on the exact result I need.",
+                    "how": "This is for a real work scenario, so include the relevant audience, constraints, and background details.",
+                    "what": "Respond in this chat with a concise summary, clear bullet points, and specific next steps.",
+                }
+            )
+
         if "Return strict JSON with a single key named options" in prompt:
             if "Focus area: context" in prompt:
                 return json.dumps(
@@ -311,6 +332,23 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.current_step, "complete")
         self.assertTrue(updated.ready_to_insert)
         self.assertIn(option, updated.final_prompt or "")
+
+    async def test_start_session_uses_ai_generated_contextual_example_for_who_step(self) -> None:
+        response = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_ai_examples",
+                source_prompt="i need to find a cheaper source for RAM SIMMS",
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+
+        session = response.session
+        assert session is not None
+        self.assertIn(
+            "discrete parts sourcing specialist helping me find a cheaper source for RAM SIMMS",
+            session.question_text or "",
+        )
 
     async def test_freeform_refinement_is_applied_to_the_target_field(self) -> None:
         source_prompt = (

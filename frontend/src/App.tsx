@@ -449,7 +449,7 @@ export function App() {
     }
   }
 
-  function useGuideMePrompt() {
+  function useGuideMePrompt(mode: "final" | "as-is") {
     if (!guideMeSession?.finalPrompt) {
       return;
     }
@@ -457,7 +457,11 @@ export function App() {
     setDraft(guideMeSession.finalPrompt);
     setGuideMeOpen(false);
     setGuideMeError(null);
-    setConversationNotice("Guide Me moved the formatted prompt into the composer.");
+    setConversationNotice(
+      mode === "as-is"
+        ? "Guide Me moved the current draft into the composer."
+        : "Guide Me moved the formatted prompt into the composer.",
+    );
   }
 
   async function handleSubmit() {

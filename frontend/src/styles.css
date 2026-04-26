@@ -489,6 +489,38 @@ input {
   gap: 12px;
 }
 
+.guide-me-preview-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.guide-me-score-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-soft) 76%, transparent);
+}
+
+.guide-me-score-chip-label {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.guide-me-score-chip-value {
+  font-weight: 700;
+}
+
+.guide-me-score-chip-separator {
+  color: var(--text-muted);
+}
+
 .guide-me-debug {
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
@@ -553,6 +585,27 @@ input {
 
 .guide-me-guidance {
   border-color: color-mix(in srgb, #d3a34a 42%, var(--border));
+}
+
+.guide-me-confirm-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, #d3a34a 36%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--coaching) 42%, var(--panel-soft));
+}
+
+.guide-me-confirm-text {
+  line-height: 1.5;
+}
+
+.guide-me-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .guide-me-final-prompt {
