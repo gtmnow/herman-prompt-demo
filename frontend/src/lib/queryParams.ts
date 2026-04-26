@@ -3,6 +3,7 @@ export type ThemeMode = "dark" | "light";
 export type LaunchParams = {
   launchToken: string | null;
   demoUserIdHash: string | null;
+  showFullDemo: boolean;
   showDetails: boolean;
   transformEnabled: boolean;
   summaryType: number | null;
@@ -13,6 +14,7 @@ export function getLaunchParams(search: string): LaunchParams {
   const params = new URLSearchParams(search);
   const launchToken = params.get("launch_token");
   const demoUserIdHash = params.get("user_id_hash");
+  const showFullDemo = params.get("showfulldemo") === "true";
   const showDetails = params.get("show_details") === "true";
   const transformEnabled = params.get("transform_enabled") !== "false";
   const theme = params.get("theme") === "light" ? "light" : "dark";
@@ -26,6 +28,7 @@ export function getLaunchParams(search: string): LaunchParams {
   return {
     launchToken,
     demoUserIdHash,
+    showFullDemo,
     showDetails,
     transformEnabled,
     summaryType,

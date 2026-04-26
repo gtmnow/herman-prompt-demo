@@ -1055,6 +1055,7 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
+          showFullDemo={launchParams.showFullDemo}
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
@@ -1086,6 +1087,7 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
+          showFullDemo={launchParams.showFullDemo}
           showDetails={showDetails}
           transformEnabled={transformEnabled}
           summaryType={summaryType}
@@ -1116,6 +1118,7 @@ export function App() {
       <Header
         isMobile={isMobile}
         onOpenSidebar={() => setSidebarCollapsed(false)}
+        showFullDemo={launchParams.showFullDemo}
         showDetails={showDetails}
         transformEnabled={transformEnabled}
         summaryType={summaryType}
