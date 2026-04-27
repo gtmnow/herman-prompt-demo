@@ -138,6 +138,26 @@ Herman Prompt does not own:
 - detailed layered profile resolution rules used by Prompt Transformer
 - profile database truth
 
+### 4.5 Authoritative data-source rule
+
+For bootstrap, Herman Prompt should read required user/profile settings from the authoritative data layer using the canonical `user_id_hash`.
+
+That means:
+
+- Herman Prompt should read bootstrap data from the authoritative database tables, or an equivalent dedicated profile-read data service
+- Herman Prompt does not need to call Herman Admin application endpoints just to load bootstrap data
+
+The authoritative bootstrap data includes at least:
+
+- base summary profile
+- prompt enforcement level
+
+If Herman Prompt cannot find a user profile record for the trusted `user_id_hash` during bootstrap, it must not fail silently or fall back invisibly.
+
+Instead, Herman Prompt must enter a graceful blocking error state and show a user-facing message such as:
+
+- `User profile not found. Contact your administrator.`
+
 ### 4.4 Prompt Transformer responsibilities
 
 Prompt Transformer owns:
@@ -183,7 +203,7 @@ Prompt Transformer does not own:
 1. Herman Prompt validates the signed launch token.
 2. Herman Prompt reads the trusted canonical `user_id_hash` from that token.
 3. Herman Prompt uses that `user_id_hash` as the user’s internal identity.
-4. Herman Prompt queries the profile store using that `user_id_hash` and loads:
+4. Herman Prompt queries the authoritative profile data source using that `user_id_hash` and loads:
    - the user’s base summary profile
    - the user’s prompt enforcement level
 5. Herman Prompt initializes the session and UI from those values.
@@ -260,7 +280,7 @@ Prompt Transformer must use the provided canonical `user_id_hash` to resolve the
 
 This flow does not require:
 
-- Herman Prompt to query Admin tables directly
+- Herman Prompt to call Herman Admin application endpoints directly for bootstrap
 - Herman Prompt to generate its own canonical user hash
 - Prompt Transformer to own login/session auth for Herman apps
 - Herman Portal to resolve the detailed prompt-transformation profile
@@ -298,6 +318,7 @@ This behavior is explicitly non-compliant with this spec.
 | UIF-12 | Shared contract stability | All | Keep the cross-app `user_id_hash` contract stable and explicit |
 | UIF-13 | Feedback-layer writes | Herman Prompt | Write user feedback into the feedback profile layer using canonical `user_id_hash` |
 | UIF-14 | Foundational-vs-layered split | Herman Prompt + Prompt Transformer | Herman Prompt bootstraps foundational profile state; Prompt Transformer resolves layered transformation profile |
+| UIF-15 | Missing-profile graceful failure | Herman Prompt | If no profile record is found at bootstrap, block the app with a clear user-facing profile-not-found message instead of silently falling back |
 
 ## 12. Recommended Implementation Rule
 

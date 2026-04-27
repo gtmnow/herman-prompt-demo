@@ -87,6 +87,7 @@ type SessionBootstrap = {
   tenant_id: string;
   profile_version?: string | null;
   profile_label?: string | null;
+  prompt_enforcement_level?: EnforcementLevel | null;
   features: {
     show_details?: boolean;
     attachments?: boolean;
@@ -100,6 +101,7 @@ type SessionBootstrap = {
     show_details?: boolean;
     transform_enabled?: boolean;
     summary_type?: number | null;
+    enforcement_level?: EnforcementLevel | null;
   };
 };
 
@@ -198,6 +200,7 @@ export function App() {
         setTransformEnabled(payload.debug.transform_enabled ?? launchParams.transformEnabled);
         setSummaryType(payload.debug.summary_type ?? launchParams.summaryType);
         setTheme(payload.branding.theme ?? launchParams.theme);
+        setEnforcementLevel(payload.prompt_enforcement_level ?? payload.debug.enforcement_level ?? "none");
         setTransformerProfile({
           profileVersion: payload.profile_version ?? null,
           personaSource: "bootstrap",
@@ -263,12 +266,6 @@ export function App() {
 
     void loadGuideMeSession(`conv_${conversationId}`);
   }, [conversationId, session?.access_token]);
-
-  const inheritedEnforcementLevel = getInheritedEnforcementLevel(session?.user_id_hash ?? null);
-
-  useEffect(() => {
-    setEnforcementLevel(inheritedEnforcementLevel);
-  }, [inheritedEnforcementLevel]);
 
   function getAuthHeaders(): Record<string, string> {
     if (!session) {
@@ -753,6 +750,7 @@ export function App() {
 
   function applySummaryType(nextSummaryType: number | null) {
     setSummaryType(nextSummaryType);
+    setEnforcementLevel(nextSummaryType === null ? session?.prompt_enforcement_level ?? "none" : "none");
     setConversationId(createConversationId());
     setTransformerConversation(null);
     setTransformerScoring(null);
@@ -1106,7 +1104,7 @@ export function App() {
           onChangeEnforcementLevel={applyEnforcementLevel}
         />
         <section className="blocking-state">
-          <h1>Authentication required</h1>
+          <h1>{getBlockingStateTitle(sessionError)}</h1>
           <p>{sessionError ?? "The app needs a signed launch token or explicit demo bootstrap to continue."}</p>
         </section>
       </main>
@@ -1367,6 +1365,13 @@ function formatDefaultProfileLabel(
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function getBlockingStateTitle(sessionError: string | null) {
+  if (sessionError?.toLowerCase().includes("profile not found")) {
+    return "Profile unavailable";
+  }
+  return "Authentication required";
+}
+
 async function extractErrorMessage(response: Response, fallbackMessage: string) {
   try {
     const payload = (await response.json()) as { detail?: string };
@@ -1378,13 +1383,4 @@ async function extractErrorMessage(response: Response, fallbackMessage: string) 
   }
 
   return fallbackMessage;
-}
-
-function getInheritedEnforcementLevel(userIdHash: string | null): EnforcementLevel {
-  switch (userIdHash) {
-    case "user_1":
-      return "full";
-    default:
-      return "none";
-  }
 }

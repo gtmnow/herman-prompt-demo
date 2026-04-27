@@ -48,14 +48,15 @@ async def build_bootstrap_response(
 
     access_token, expires_at = issue_session_token(user)
     selected_theme = theme if theme in {"dark", "light"} else settings.auth_default_theme
-    resolved_profile = await TransformerClient().fetch_resolved_profile(
-        user_id=user.user_id_hash,
+    resolved_profile = await _load_bootstrap_profile(
+        user=user,
         summary_type=summary_type,
     )
     profile_version = (
         _read_resolved_profile_field(resolved_profile, "profile_version")
         or user.profile_version
     )
+    prompt_enforcement_level = _read_resolved_profile_field(resolved_profile, "prompt_enforcement_level") or "none"
     profile_label = (
         _format_profile_label(profile_version)
         or user.profile_label
@@ -70,6 +71,7 @@ async def build_bootstrap_response(
         tenant_id=user.tenant_id,
         profile_version=profile_version,
         profile_label=profile_label,
+        prompt_enforcement_level=_normalize_enforcement_level(prompt_enforcement_level),
         features={
             "show_details": show_details,
             "attachments": True,
@@ -83,6 +85,7 @@ async def build_bootstrap_response(
             "show_details": show_details,
             "transform_enabled": transform_enabled,
             "summary_type": summary_type,
+            "enforcement_level": _normalize_enforcement_level(prompt_enforcement_level),
         },
     )
 
@@ -129,6 +132,31 @@ def _read_resolved_profile_field(profile: dict[str, object] | None, key: str) ->
     return value or None
 
 
+async def _load_bootstrap_profile(
+    *,
+    user: AuthenticatedUser,
+    summary_type: int | None,
+) -> dict[str, object] | None:
+    resolved_profile = await TransformerClient().fetch_resolved_profile(
+        user_id=user.user_id_hash,
+        summary_type=summary_type,
+    )
+    if user.auth_mode == "demo":
+        return resolved_profile
+
+    profile_version = _read_resolved_profile_field(resolved_profile, "profile_version")
+    if profile_version and profile_version != "generic_default":
+        return resolved_profile
+
+    if user.profile_version and user.profile_version != "generic_default":
+        return resolved_profile
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="User profile not found. Contact your administrator.",
+    )
+
+
 def _format_profile_label(profile_version: str | None) -> str | None:
     if not profile_version:
         return None
@@ -137,3 +165,10 @@ def _format_profile_label(profile_version: str | None) -> str | None:
     if profile_version == "generic_default":
         return "Generic Default"
     return profile_version.replace("_", " ").replace("-", " ").title()
+
+
+def _normalize_enforcement_level(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"none", "low", "moderate", "full"}:
+        return normalized
+    return "none"

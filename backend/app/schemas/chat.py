@@ -274,6 +274,7 @@ class SessionBootstrapResponse(BaseModel):
     tenant_id: str
     profile_version: str | None = None
     profile_label: str | None = None
+    prompt_enforcement_level: Literal["none", "low", "moderate", "full"] | None = None
     features: dict[str, bool] = Field(default_factory=dict)
     branding: dict[str, str] = Field(default_factory=dict)
-    debug: dict[str, bool | int | None] = Field(default_factory=dict)
+    debug: dict[str, bool | int | str | None] = Field(default_factory=dict)
