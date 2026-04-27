@@ -22,11 +22,19 @@ type TranscriptProps = {
   turns: TranscriptTurn[];
   showDetails: boolean;
   loading: boolean;
+  emptyStateMessage: string;
   onOpenGuideMe: (sourcePrompt?: string) => void;
   onOpenFeedback: (turnId: string, feedbackType: "up" | "down") => void;
 };
 
-export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpenGuideMe }: TranscriptProps) {
+export function Transcript({
+  turns,
+  showDetails,
+  loading,
+  emptyStateMessage,
+  onOpenFeedback,
+  onOpenGuideMe,
+}: TranscriptProps) {
   const containerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -44,7 +52,7 @@ export function Transcript({ turns, showDetails, loading, onOpenFeedback, onOpen
   if (turns.length === 0 && !loading) {
     return (
       <section ref={containerRef} className="transcript transcript-empty">
-        <p>Enter a prompt to test how HermanPrompt reshapes it before the LLM responds.</p>
+        <p>{emptyStateMessage}</p>
       </section>
     );
   }

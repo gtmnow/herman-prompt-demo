@@ -161,6 +161,7 @@ export function App() {
   const [guideMeError, setGuideMeError] = useState<string | null>(null);
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
+  const emptyTranscriptMessage = buildWelcomeMessage(session, enforcementLevel, summaryType, transformerProfile);
 
   useEffect(() => {
     let cancelled = false;
@@ -1164,6 +1165,7 @@ export function App() {
             turns={turns}
             showDetails={showDetails}
             loading={loading}
+            emptyStateMessage={emptyTranscriptMessage}
             onOpenFeedback={openFeedback}
             onOpenGuideMe={openGuideMe}
           />
@@ -1363,6 +1365,32 @@ function formatDefaultProfileLabel(
   return raw
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildWelcomeMessage(
+  session: SessionBootstrap | null,
+  enforcementLevel: EnforcementLevel,
+  summaryType: number | null,
+  transformerProfile: TransformerProfileMetadata,
+) {
+  const firstName = getFirstName(session?.display_name);
+  const profileLabel = formatDefaultProfileLabel(transformerProfile, session, summaryType);
+  const coachingLevel = formatEnforcementLabel(enforcementLevel);
+  return `Welcome ${firstName} your ${profileLabel} profile is loaded. Your coaching level is ${coachingLevel}. Enter a prompt to begin.`;
+}
+
+function getFirstName(displayName: string | null | undefined) {
+  const normalized = (displayName ?? "").trim();
+  if (!normalized) {
+    return "there";
+  }
+
+  const [firstName] = normalized.split(/\s+/);
+  return firstName || "there";
+}
+
+function formatEnforcementLabel(enforcementLevel: EnforcementLevel) {
+  return enforcementLevel.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function getBlockingStateTitle(sessionError: string | null) {
