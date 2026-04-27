@@ -157,6 +157,7 @@ export function App() {
   const [guideMeSession, setGuideMeSession] = useState<GuideMeSession | null>(null);
   const [guideMeOpen, setGuideMeOpen] = useState(false);
   const [guideMeBusy, setGuideMeBusy] = useState(false);
+  const [guideMePendingAction, setGuideMePendingAction] = useState<"launch" | "submit" | "cancel" | null>(null);
   const [guideMeAnswer, setGuideMeAnswer] = useState("");
   const [guideMeError, setGuideMeError] = useState<string | null>(null);
 
@@ -312,6 +313,7 @@ export function App() {
     }
 
     setGuideMeBusy(true);
+    setGuideMePendingAction("launch");
     setGuideMeError(null);
     setGuideMeOpen(true);
 
@@ -346,6 +348,7 @@ export function App() {
       setGuideMeOpen(true);
     } finally {
       setGuideMeBusy(false);
+      setGuideMePendingAction(null);
     }
   }
 
@@ -399,6 +402,7 @@ export function App() {
     }
 
     setGuideMeBusy(true);
+    setGuideMePendingAction("submit");
     setGuideMeError(null);
 
     try {
@@ -429,6 +433,7 @@ export function App() {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to continue Guide Me.");
     } finally {
       setGuideMeBusy(false);
+      setGuideMePendingAction(null);
     }
   }
 
@@ -439,6 +444,7 @@ export function App() {
     }
 
     setGuideMeBusy(true);
+    setGuideMePendingAction("cancel");
     try {
       const response = await fetch(`${apiBaseUrl}/api/guide-me/${guideMeSession.conversationId}/cancel`, {
         method: "POST",
@@ -459,6 +465,7 @@ export function App() {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to cancel Guide Me.");
     } finally {
       setGuideMeBusy(false);
+      setGuideMePendingAction(null);
     }
   }
 
@@ -1223,6 +1230,7 @@ export function App() {
       <GuideMePanel
         answer={guideMeAnswer}
         busy={guideMeBusy}
+        pendingAction={guideMePendingAction}
         error={guideMeError}
         open={guideMeOpen}
         session={guideMeSession}

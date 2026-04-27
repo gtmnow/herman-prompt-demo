@@ -9,3 +9,4 @@ __pycache__/
 .pytest_cache/
 *.pyc
 *.db
+docs/BUILD_GAP_ANALYSIS.md

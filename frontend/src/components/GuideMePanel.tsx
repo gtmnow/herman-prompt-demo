@@ -34,10 +34,12 @@ export type GuideMeSession = {
 };
 
 type GuideMeUsePromptMode = "final" | "as-is";
+type GuideMePendingAction = "launch" | "submit" | "cancel" | null;
 
 type GuideMePanelProps = {
   answer: string;
   busy: boolean;
+  pendingAction: GuideMePendingAction;
   error: string | null;
   open: boolean;
   session: GuideMeSession | null;
@@ -54,6 +56,7 @@ type GuideMePanelProps = {
 export function GuideMePanel({
   answer,
   busy,
+  pendingAction,
   error,
   open,
   session,
@@ -70,6 +73,7 @@ export function GuideMePanel({
   const [confirmUseAsIs, setConfirmUseAsIs] = useState(false);
 
   const scoreSummary = getGuideMeScoreSummary(session?.decisionTrace);
+  const progressState = getGuideMeProgressState(session);
 
   useEffect(() => {
     if (!open) {
@@ -114,6 +118,7 @@ export function GuideMePanel({
         {session ? (
           <>
             <GuideIndicators requirements={session.requirements} />
+            {busy && pendingAction === "submit" ? <GuideMeBusyStatus progressState={progressState} /> : null}
 
             {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
             {session.currentStep === "refine" && session.guidanceText ? (
@@ -267,7 +272,7 @@ export function GuideMePanel({
                 </button>
               ) : (
                 <button className="send-button" disabled={busy || !answer.trim()} type="button" onClick={onSubmit}>
-                  Continue
+                  {busy && pendingAction === "submit" ? "Updating..." : "Continue"}
                 </button>
               )}
               <button className="feedback-button" disabled={busy} type="button" onClick={onCancel}>
@@ -319,6 +324,139 @@ function getGuideMeScoreSummary(decisionTrace?: Record<string, unknown>) {
 
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function GuideMeBusyStatus({
+  progressState,
+}: {
+  progressState: { percent: number | null; label: string };
+}) {
+  return (
+    <div className="guide-me-busy-status" aria-live="polite" aria-atomic="true">
+      <div className="guide-me-busy-status-row">
+        <div className="guide-me-busy-status-copy">
+          <div className="guide-me-meta-label">In progress</div>
+          <div className="guide-me-busy-status-text">{progressState.label}</div>
+        </div>
+        <div className="guide-me-busy-status-spinner" aria-hidden="true" />
+      </div>
+      {progressState.percent !== null ? (
+        <div
+          className="guide-me-progress"
+          role="progressbar"
+          aria-label="Guide Me completion estimate"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressState.percent}
+        >
+          <div className="guide-me-progress-track">
+            <div className="guide-me-progress-fill" style={{ width: `${progressState.percent}%` }} />
+          </div>
+          <div className="guide-me-progress-value">{progressState.percent}% complete</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getGuideMeProgressState(session: GuideMeSession | null) {
+  if (!session) {
+    return { percent: null, label: "Updating your prompt..." };
+  }
+
+  const scoreBasedPercent = getGuideMeScorePercent(session);
+  if (scoreBasedPercent !== null) {
+    return {
+      percent: scoreBasedPercent,
+      label:
+        session.currentStep === "refine"
+          ? "Applying your refinement and rescoring the draft..."
+          : "Adding your details and strengthening the prompt...",
+    };
+  }
+
+  return {
+    percent: getGuideMeStepPercent(session.currentStep),
+    label:
+      session.currentStep === "refine"
+        ? "Applying your refinement and rescoring the draft..."
+        : "Adding your details and preparing the next step...",
+  };
+}
+
+function getGuideMeScorePercent(session: GuideMeSession) {
+  const decisionTraceScores = [
+    asNumber(session.decisionTrace?.final_score),
+    asNumber(session.decisionTrace?.final_llm_score),
+    asNumber(session.decisionTrace?.structural_score),
+  ].filter((value): value is number => value !== null);
+
+  if (decisionTraceScores.length > 0) {
+    return clampPercent(Math.round(average(decisionTraceScores)));
+  }
+
+  const requirementPercents = Object.values(session.requirements ?? {})
+    .map((requirement) => {
+      if (
+        typeof requirement.llmScore === "number" &&
+        Number.isFinite(requirement.llmScore) &&
+        typeof requirement.maxScore === "number" &&
+        Number.isFinite(requirement.maxScore) &&
+        requirement.maxScore > 0
+      ) {
+        return (requirement.llmScore / requirement.maxScore) * 100;
+      }
+
+      if (
+        typeof requirement.heuristicScore === "number" &&
+        Number.isFinite(requirement.heuristicScore) &&
+        typeof requirement.maxScore === "number" &&
+        Number.isFinite(requirement.maxScore) &&
+        requirement.maxScore > 0
+      ) {
+        return (requirement.heuristicScore / requirement.maxScore) * 100;
+      }
+
+      switch (requirement.state) {
+        case "met":
+          return 100;
+        case "partial":
+          return 50;
+        default:
+          return 0;
+      }
+    })
+    .filter((value) => Number.isFinite(value));
+
+  if (requirementPercents.length > 0) {
+    return clampPercent(Math.round(average(requirementPercents)));
+  }
+
+  return null;
+}
+
+function getGuideMeStepPercent(currentStep: GuideMeSession["currentStep"]) {
+  const stepPercents: Record<GuideMeSession["currentStep"], number> = {
+    intro: 5,
+    describe_need: 15,
+    who: 30,
+    why: 45,
+    how: 60,
+    what: 75,
+    refine: 90,
+    complete: 100,
+    cancelled: 0,
+  };
+
+  return stepPercents[currentStep] ?? null;
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
 }
 
 function GuideIndicators({
