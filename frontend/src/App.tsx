@@ -160,6 +160,7 @@ export function App() {
   const [guideMeOpen, setGuideMeOpen] = useState(false);
   const [guideMeBusy, setGuideMeBusy] = useState(false);
   const [guideMePendingAction, setGuideMePendingAction] = useState<"launch" | "submit" | "cancel" | null>(null);
+  const [guideMeSubmitProgressPercent, setGuideMeSubmitProgressPercent] = useState<number | null>(null);
   const [guideMeAnswer, setGuideMeAnswer] = useState("");
   const [guideMeError, setGuideMeError] = useState<string | null>(null);
 
@@ -404,9 +405,28 @@ export function App() {
     }
 
     const submitStartedAt = Date.now();
+    const progressTimerMs = 180;
+    setGuideMeSubmitProgressPercent(6);
     setGuideMeBusy(true);
     setGuideMePendingAction("submit");
     setGuideMeError(null);
+    const progressTimer = window.setInterval(() => {
+      setGuideMeSubmitProgressPercent((current) => {
+        const currentValue = typeof current === "number" && Number.isFinite(current) ? current : 6;
+        const elapsedMs = Date.now() - submitStartedAt;
+
+        if (elapsedMs < 600) {
+          return Math.min(28, currentValue + 5);
+        }
+        if (elapsedMs < 1600) {
+          return Math.min(52, currentValue + 4);
+        }
+        if (elapsedMs < 3000) {
+          return Math.min(74, currentValue + 3);
+        }
+        return Math.min(90, currentValue + 2);
+      });
+    }, progressTimerMs);
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/guide-me/respond`, {
@@ -435,13 +455,17 @@ export function App() {
     } catch (guideError) {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to continue Guide Me.");
     } finally {
+      window.clearInterval(progressTimer);
+      setGuideMeSubmitProgressPercent(100);
       const elapsedMs = Date.now() - submitStartedAt;
       const remainingMs = GUIDE_ME_SUBMIT_MIN_BUSY_MS - elapsedMs;
       if (remainingMs > 0) {
         await delay(remainingMs);
       }
+      await delay(120);
       setGuideMeBusy(false);
       setGuideMePendingAction(null);
+      setGuideMeSubmitProgressPercent(null);
     }
   }
 
@@ -1239,6 +1263,7 @@ export function App() {
         answer={guideMeAnswer}
         busy={guideMeBusy}
         pendingAction={guideMePendingAction}
+        submitProgressPercent={guideMeSubmitProgressPercent}
         error={guideMeError}
         open={guideMeOpen}
         session={guideMeSession}
