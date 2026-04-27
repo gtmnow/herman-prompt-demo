@@ -9,6 +9,7 @@ The design must support:
 - Softr as the initial user-facing authentication and launch environment
 - a future standalone HermanPrompt product outside of Softr
 - a protected Prompt Transformer service that can be consumed by HermanPrompt and later by third-party tools such as Synthreo
+- a clean split between HermanPrompt bootstrap-time profile state and Prompt Transformer transformation-time profile resolution
 
 ## Design Principles
 
@@ -17,6 +18,8 @@ The design must support:
 - Prompt Transformer should behave like a protected downstream service, not a public anonymous endpoint.
 - Softr should be treated as an initial integration surface, not a permanent platform dependency.
 - HermanPrompt should remain the primary orchestration layer between the user experience and Prompt Transformer.
+- HermanPrompt should own bootstrap-time profile display state and prompt enforcement behavior.
+- Prompt Transformer should own layered profile resolution for transformation and scoring.
 
 ## Trust Boundaries
 
@@ -34,6 +37,7 @@ Purpose:
 - authenticate the human user
 - establish tenant and session context
 - resolve the internal `user_id_hash`
+- load bootstrap-authoritative user settings
 - authorize access to conversations, feedback, export, and admin features
 
 ### 2. Service-to-service authentication
@@ -89,6 +93,8 @@ Bootstrap should eventually return:
 
 - authenticated user display info
 - resolved `user_id_hash`
+- base summary profile or profile label
+- prompt enforcement level
 - tenant or app instance config
 - feature flags
 - branding config
@@ -102,6 +108,9 @@ The backend remains responsible for:
 
 - conversation persistence
 - feedback persistence
+- feedback-layer writes into the profile system
+- bootstrap-time base profile loading
+- bootstrap-time prompt enforcement loading
 - export and delete permissions
 - provider routing
 - Prompt Transformer orchestration
@@ -114,6 +123,7 @@ Prompt Transformer should trust:
 
 - the calling application identity
 - the declared tenant or client identity
+- the canonical `user_id_hash` supplied by HermanPrompt
 
 Prompt Transformer should not trust anonymous browser calls.
 
@@ -180,11 +190,32 @@ That means Prompt Transformer should eventually support:
 Recommended identity flow:
 
 1. External identity provider authenticates the human user.
-2. HermanPrompt backend receives validated user identity.
-3. HermanPrompt backend maps that identity to internal `user_id_hash`.
-4. `user_id_hash` is used in Prompt Transformer requests and HermanPrompt persistence.
+2. A trusted Herman launch surface such as Herman Portal supplies the canonical `user_id_hash`.
+3. HermanPrompt backend trusts and uses that canonical `user_id_hash`.
+4. HermanPrompt uses that `user_id_hash` for bootstrap-time profile loading, enforcement loading, persistence, and feedback writes.
+5. `user_id_hash` is used in Prompt Transformer requests.
 
 This keeps PII out of Prompt Transformer.
+
+## Profile Ownership Split
+
+### HermanPrompt owns
+
+- bootstrap-time base summary profile loading
+- bootstrap-time prompt enforcement loading
+- profile display state in the UI
+- enforcement behavior
+- writing user feedback into the feedback layer
+
+### Prompt Transformer owns
+
+- layered profile resolution for transformation
+- effective profile composition from:
+  - foundational type defaults
+  - brain chemistry
+  - behavioral dimensions
+  - user feedback
+- scoring and transformation behavior derived from that effective profile
 
 ## Machine Authentication Recommendations
 
@@ -218,11 +249,13 @@ This architecture does not require:
 - Prompt Transformer to own end-user login
 - the browser to derive or validate `user_id_hash`
 - Softr-specific logic inside Prompt Transformer
+- Prompt Transformer to own HermanPrompt bootstrap profile display state
+- Prompt Transformer to own prompt enforcement behavior
 
 ## Recommended Next Implementation Steps
 
-1. Add a formal bootstrap/session endpoint to HermanPrompt backend.
-2. Replace production reliance on `user_id_hash` query params with backend-resolved identity.
-3. Add service authentication from HermanPrompt backend to Prompt Transformer.
-4. Add client identity concepts to Prompt Transformer for first-party and third-party consumers.
-5. Keep Softr integration isolated to the launch/auth layer so HermanPrompt can later run outside Softr without major backend redesign.
+1. Keep a formal bootstrap/session endpoint in HermanPrompt backend.
+2. Ensure production bootstrap trusts the signed canonical `user_id_hash` instead of re-deriving a second one.
+3. Load base summary profile and prompt enforcement from the profile store during HermanPrompt bootstrap.
+4. Add or preserve service authentication from HermanPrompt backend to Prompt Transformer.
+5. Keep Softr or Herman Portal integration isolated to the launch/auth layer so HermanPrompt can later run outside that environment without major backend redesign.
