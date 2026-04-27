@@ -58,7 +58,7 @@ def get_initial_score(prompt: str, *, conversation_id: str, user_id_hash: str) -
         payload={
             "session_id": f"{conversation_id}-baseline",
             "conversation_id": conversation_id,
-            "user_id": user_id_hash,
+            "user_id_hash": user_id_hash,
             "raw_prompt": prompt,
             "target_llm": {
                 "provider": "openai",
@@ -70,7 +70,7 @@ def get_initial_score(prompt: str, *, conversation_id: str, user_id_hash: str) -
     )
     try:
         score_payload = http_json(
-            f"{TRANSFORMER_URL}/api/conversation_scores/{conversation_id}?{urllib.parse.urlencode({'user_id': user_id_hash})}",
+            f"{TRANSFORMER_URL}/api/conversation_scores/{conversation_id}?{urllib.parse.urlencode({'user_id_hash': user_id_hash})}",
             headers=headers,
         )
     except urllib.error.HTTPError as exc:

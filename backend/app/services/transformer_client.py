@@ -32,7 +32,7 @@ class TransformerClient:
         *,
         session_id: str,
         conversation_id: str,
-        user_id: str,
+        user_id_hash: str,
         raw_prompt: str,
         conversation: dict[str, Any] | None = None,
         summary_type: int | None = None,
@@ -44,7 +44,7 @@ class TransformerClient:
         payload: dict[str, Any] = {
             "session_id": session_id,
             "conversation_id": conversation_id,
-            "user_id": user_id,
+            "user_id_hash": user_id_hash,
             "raw_prompt": raw_prompt,
             "target_llm": {
                 "provider": settings.llm_provider,
@@ -64,31 +64,13 @@ class TransformerClient:
         self,
         *,
         conversation_id: str,
-        user_id: str,
+        user_id_hash: str,
     ) -> dict[str, Any] | None:
         try:
             return await self._request(
                 "GET",
                 f"/api/conversation_scores/{conversation_id}",
-                params={"user_id": user_id},
-            )
-        except RuntimeError:
-            return None
-
-    async def fetch_resolved_profile(
-        self,
-        *,
-        user_id: str,
-        summary_type: int | None = None,
-    ) -> dict[str, Any] | None:
-        params: dict[str, Any] = {"user_id": user_id}
-        if summary_type is not None:
-            params["summary_type"] = summary_type
-        try:
-            return await self._request(
-                "GET",
-                "/api/profiles/resolve",
-                params=params,
+                params={"user_id_hash": user_id_hash},
             )
         except RuntimeError:
             return None

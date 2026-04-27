@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import Header, HTTPException, Query, status
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.auth import (
     AuthError,
@@ -11,8 +13,8 @@ from app.core.auth import (
     resolve_launch_user,
 )
 from app.core.config import settings
+from app.db.session import engine
 from app.schemas.chat import SessionBootstrapResponse
-from app.services.transformer_client import TransformerClient
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> AuthenticatedUser:
@@ -48,15 +50,14 @@ async def build_bootstrap_response(
 
     access_token, expires_at = issue_session_token(user)
     selected_theme = theme if theme in {"dark", "light"} else settings.auth_default_theme
-    resolved_profile = await _load_bootstrap_profile(
+    bootstrap_profile = _load_bootstrap_profile(
         user=user,
-        summary_type=summary_type,
     )
     profile_version = (
-        _read_resolved_profile_field(resolved_profile, "profile_version")
+        _read_resolved_profile_field(bootstrap_profile, "profile_version")
         or user.profile_version
     )
-    prompt_enforcement_level = _read_resolved_profile_field(resolved_profile, "prompt_enforcement_level") or "none"
+    prompt_enforcement_level = _read_resolved_profile_field(bootstrap_profile, "prompt_enforcement_level") or "none"
     profile_label = (
         _format_profile_label(profile_version)
         or user.profile_label
@@ -67,8 +68,8 @@ async def build_bootstrap_response(
         expires_at=expires_at,
         auth_mode=user.auth_mode,
         user_id_hash=user.user_id_hash,
-        display_name=user.display_name,
-        tenant_id=user.tenant_id,
+        display_name=_read_resolved_profile_field(bootstrap_profile, "display_name") or user.display_name,
+        tenant_id=_read_resolved_profile_field(bootstrap_profile, "tenant_id") or user.tenant_id,
         profile_version=profile_version,
         profile_label=profile_label,
         prompt_enforcement_level=_normalize_enforcement_level(prompt_enforcement_level),
@@ -132,24 +133,61 @@ def _read_resolved_profile_field(profile: dict[str, object] | None, key: str) ->
     return value or None
 
 
-async def _load_bootstrap_profile(
+def _load_bootstrap_profile(
     *,
     user: AuthenticatedUser,
-    summary_type: int | None,
 ) -> dict[str, object] | None:
-    resolved_profile = await TransformerClient().fetch_resolved_profile(
-        user_id=user.user_id_hash,
-        summary_type=summary_type,
-    )
+    try:
+        with engine.connect() as connection:
+            auth_row = connection.execute(
+                text(
+                    """
+                    select user_id_hash, display_name, tenant_id
+                    from auth_users
+                    where user_id_hash = :user_id_hash
+                    order by id desc
+                    limit 1
+                    """
+                ),
+                {"user_id_hash": user.user_id_hash},
+            ).mappings().first()
+            profile_row = connection.execute(
+                text(
+                    """
+                    select
+                      user_id_hash,
+                      profile_version,
+                      prompt_enforcement_level,
+                      compliance_check_enabled,
+                      pii_check_enabled
+                    from final_profile
+                    where user_id_hash = :user_id_hash
+                    limit 1
+                    """
+                ),
+                {"user_id_hash": user.user_id_hash},
+            ).mappings().first()
+    except SQLAlchemyError as exc:
+        if user.auth_mode == "demo":
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="User profile bootstrap data is unavailable.",
+        ) from exc
+
+    if auth_row and profile_row:
+        return {
+            "user_id_hash": auth_row["user_id_hash"],
+            "display_name": auth_row.get("display_name"),
+            "tenant_id": auth_row.get("tenant_id"),
+            "profile_version": profile_row.get("profile_version"),
+            "prompt_enforcement_level": profile_row.get("prompt_enforcement_level"),
+            "compliance_check_enabled": profile_row.get("compliance_check_enabled"),
+            "pii_check_enabled": profile_row.get("pii_check_enabled"),
+        }
+
     if user.auth_mode == "demo":
-        return resolved_profile
-
-    profile_version = _read_resolved_profile_field(resolved_profile, "profile_version")
-    if profile_version and profile_version != "generic_default":
-        return resolved_profile
-
-    if user.profile_version and user.profile_version != "generic_default":
-        return resolved_profile
+        return None
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,

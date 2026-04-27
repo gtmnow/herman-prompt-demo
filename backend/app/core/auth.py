@@ -73,12 +73,13 @@ def resolve_launch_user(token: str) -> AuthenticatedUser:
 
     display_name = str(payload.get("display_name") or payload.get("name") or "Authenticated User").strip()
     tenant_id = str(payload.get("tenant_id") or settings.auth_demo_tenant_id).strip()
+    user_id_hash = _read_required(payload, "user_id_hash")
     profile_version = _normalize_optional_claim(payload.get("profile_version"))
     profile_label = _normalize_optional_claim(payload.get("profile_label") or payload.get("profile_name"))
 
     return AuthenticatedUser(
         external_user_id=external_user_id,
-        user_id_hash=derive_user_id_hash(external_user_id),
+        user_id_hash=user_id_hash,
         display_name=display_name or "Authenticated User",
         tenant_id=tenant_id or settings.auth_demo_tenant_id,
         auth_mode="signed_launch",
@@ -99,17 +100,6 @@ def build_demo_user(user_id_hash: str) -> AuthenticatedUser:
         tenant_id=settings.auth_demo_tenant_id,
         auth_mode="demo",
     )
-
-
-def derive_user_id_hash(external_user_id: str) -> str:
-    digest = hmac.new(
-        settings.auth_user_hash_salt.encode("utf-8"),
-        external_user_id.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return digest[:24]
-
-
 def _sign_payload(payload: dict[str, Any], secret: str) -> str:
     encoded_payload = _b64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     signature = hmac.new(secret.encode("utf-8"), encoded_payload.encode("utf-8"), hashlib.sha256).digest()

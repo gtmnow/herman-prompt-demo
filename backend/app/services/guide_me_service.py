@@ -237,7 +237,7 @@ class GuideMeService:
             if guide_session is not None:
                 score = await self.transformer_client.fetch_conversation_score(
                     conversation_id=conversation_id,
-                    user_id=user.user_id_hash,
+                    user_id_hash=user.user_id_hash,
                 )
                 refreshed_requirements = _extract_transformer_requirements(transformed=None, score=score)
                 if refreshed_requirements:
@@ -657,7 +657,7 @@ class GuideMeService:
             transformed = await self.transformer_client.transform_prompt(
                 session_id=f"{conversation_id}-guide",
                 conversation_id=conversation_id,
-                user_id=user.user_id_hash,
+                user_id_hash=user.user_id_hash,
                 raw_prompt=source_prompt,
                 summary_type=summary_type,
                 enforcement_level=enforcement_level,
@@ -665,7 +665,7 @@ class GuideMeService:
             failing_field = _first_failing_requirement(transformed.get("conversation"))
             score = await self.transformer_client.fetch_conversation_score(
                 conversation_id=conversation_id,
-                user_id=user.user_id_hash,
+                user_id_hash=user.user_id_hash,
             )
             requirements = _extract_transformer_requirements(transformed=transformed, score=None)
             answers = _sync_answers_from_requirements(answers, requirements)
@@ -844,7 +844,7 @@ class GuideMeService:
             transformed = await self.transformer_client.transform_prompt(
                 session_id=f"{guide_session.conversation_id}-guide-validate",
                 conversation_id=guide_session.conversation_id,
-                user_id=guide_session.user_id_hash,
+                user_id_hash=guide_session.user_id_hash,
                 raw_prompt=final_prompt,
                 summary_type=summary_type,
                 enforcement_level=enforcement_level,
@@ -862,7 +862,7 @@ class GuideMeService:
         failing_field = _first_failing_requirement(transformed.get("conversation"))
         score = await self.transformer_client.fetch_conversation_score(
             conversation_id=guide_session.conversation_id,
-            user_id=guide_session.user_id_hash,
+            user_id_hash=guide_session.user_id_hash,
         )
         requirements = _extract_transformer_requirements(transformed=transformed, score=None)
         answers = _sync_answers_from_requirements(answers, requirements)

@@ -50,7 +50,7 @@ class ChatService:
             transformed = await self.transformer_client.transform_prompt(
                 session_id=payload.conversation_id,
                 conversation_id=payload.conversation_id,
-                user_id=user.user_id_hash,
+                user_id_hash=user.user_id_hash,
                 raw_prompt=raw_user_text,
                 conversation=stored_transformer_conversation,
                 summary_type=payload.summary_type,
@@ -150,7 +150,7 @@ class ChatService:
         if payload.debug.transform_enabled:
             transformer_scoring = await self.transformer_client.fetch_conversation_score(
                 conversation_id=payload.conversation_id,
-                user_id=user.user_id_hash,
+                user_id_hash=user.user_id_hash,
             )
 
         turn_id = self.conversation_service.append_turn(
@@ -217,7 +217,7 @@ class ChatService:
         )
         detail.transformer_scoring = await self.transformer_client.fetch_conversation_score(
             conversation_id=conversation_id,
-            user_id=user_id_hash,
+            user_id_hash=user_id_hash,
         )
         return detail
 

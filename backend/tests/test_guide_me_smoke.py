@@ -128,7 +128,7 @@ class FakeTransformerClient:
         *,
         session_id: str,
         conversation_id: str,
-        user_id: str,
+        user_id_hash: str,
         raw_prompt: str,
         conversation: dict[str, Any] | None = None,
         summary_type: int | None = None,
@@ -166,7 +166,7 @@ class FakeTransformerClient:
         self,
         *,
         conversation_id: str,
-        user_id: str,
+        user_id_hash: str,
     ) -> dict[str, Any] | None:
         latest_prompt = self.latest_prompt_by_conversation.get(conversation_id, "")
         if all(token in latest_prompt for token in ("saas", "renewal", "stakeholder")):
