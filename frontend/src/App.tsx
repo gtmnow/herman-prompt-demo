@@ -114,6 +114,8 @@ function createConversationId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+const GUIDE_ME_SUBMIT_MIN_BUSY_MS = 900;
+
 export function App() {
   const launchParams = getLaunchParams(window.location.search);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
@@ -401,6 +403,7 @@ export function App() {
       return;
     }
 
+    const submitStartedAt = Date.now();
     setGuideMeBusy(true);
     setGuideMePendingAction("submit");
     setGuideMeError(null);
@@ -432,6 +435,11 @@ export function App() {
     } catch (guideError) {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to continue Guide Me.");
     } finally {
+      const elapsedMs = Date.now() - submitStartedAt;
+      const remainingMs = GUIDE_ME_SUBMIT_MIN_BUSY_MS - elapsedMs;
+      if (remainingMs > 0) {
+        await delay(remainingMs);
+      }
       setGuideMeBusy(false);
       setGuideMePendingAction(null);
     }
@@ -1340,6 +1348,12 @@ function mapGuideMeSession(session: GuideMeApiSession): GuideMeSession {
     finalPrompt: session.final_prompt ?? null,
     readyToInsert: session.ready_to_insert,
   };
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function formatDefaultProfileLabel(

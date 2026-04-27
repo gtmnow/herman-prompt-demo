@@ -118,7 +118,7 @@ export function GuideMePanel({
         {session ? (
           <>
             <GuideIndicators requirements={session.requirements} />
-            {busy && pendingAction === "submit" ? <GuideMeBusyStatus progressState={progressState} /> : null}
+            {pendingAction === "submit" ? <GuideMeBusyStatus progressState={progressState} /> : null}
 
             {session.questionText ? <div className="guide-me-question">{session.questionText}</div> : null}
             {session.currentStep === "refine" && session.guidanceText ? (
@@ -256,6 +256,20 @@ export function GuideMePanel({
             {error ? <div className="error-banner">{error}</div> : null}
 
             <div className="guide-me-actions">
+              {pendingAction === "submit" ? (
+                <div className="guide-me-actions-status" aria-live="polite" aria-atomic="true">
+                  <div className="guide-me-inline-spinner" aria-hidden="true" />
+                  <span>
+                    Updating
+                    {progressState.percent !== null ? ` (${progressState.percent}%)` : "..."}
+                  </span>
+                  {progressState.percent !== null ? (
+                    <div className="guide-me-actions-progress-track" aria-hidden="true">
+                      <div className="guide-me-actions-progress-fill" style={{ width: `${progressState.percent}%` }} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {session.finalPrompt ? (
                 <button
                   className="feedback-button"
@@ -272,7 +286,7 @@ export function GuideMePanel({
                 </button>
               ) : (
                 <button className="send-button" disabled={busy || !answer.trim()} type="button" onClick={onSubmit}>
-                  {busy && pendingAction === "submit" ? "Updating..." : "Continue"}
+                  {pendingAction === "submit" ? "Updating..." : "Continue"}
                 </button>
               )}
               <button className="feedback-button" disabled={busy} type="button" onClick={onCancel}>
