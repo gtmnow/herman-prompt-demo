@@ -195,6 +195,8 @@ uvicorn app.main:app --reload --port 8002
 
 ### Example Local URL
 
+The UI launches in light mode by default. Add `theme=dark` to opt into dark mode.
+
 Demo mode:
 
 ```text

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     auth_demo_display_name: str = Field(default="Demo User", alias="AUTH_DEMO_DISPLAY_NAME")
     auth_demo_tenant_id: str = Field(default="tenant_demo", alias="AUTH_DEMO_TENANT_ID")
     auth_default_app_name: str = Field(default="HermanPrompt", alias="AUTH_DEFAULT_APP_NAME")
-    auth_default_theme: str = Field(default="dark", alias="AUTH_DEFAULT_THEME")
+    auth_default_theme: str = Field(default="light", alias="AUTH_DEFAULT_THEME")
     prompt_transformer_url: str = Field(default="http://localhost:8001", alias="PROMPT_TRANSFORMER_URL")
     prompt_transformer_api_key: str = Field(default="", alias="PROMPT_TRANSFORMER_API_KEY")
     prompt_transformer_client_id: str = Field(default="hermanprompt", alias="PROMPT_TRANSFORMER_CLIENT_ID")

@@ -17,7 +17,7 @@ export function getLaunchParams(search: string): LaunchParams {
   const showFullDemo = params.get("showfulldemo") === "true";
   const showDetails = params.get("show_details") === "true";
   const transformEnabled = params.get("transform_enabled") !== "false";
-  const theme = params.get("theme") === "light" ? "light" : "dark";
+  const theme = params.get("theme") === "dark" ? "dark" : "light";
   const rawSummaryType = params.get("summary_type");
   const parsedSummaryType = rawSummaryType ? Number(rawSummaryType) : null;
   const summaryType =

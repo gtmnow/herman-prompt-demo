@@ -395,8 +395,8 @@ Frontend behavior:
 - `show_details` initializes the toggle state when provided
 - if `show_details` is absent, default to `false`
 - `theme` initializes the visual theme when provided
-- if `theme` is absent, default to `dark`
-- values outside `dark|light` fall back to `dark`
+- if `theme` is absent, default to `light`
+- values outside `dark|light` fall back to `light`
 
 ### Main screens and states
 
