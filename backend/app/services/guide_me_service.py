@@ -18,6 +18,7 @@ from app.schemas.chat import (
 )
 from app.services.conversation_service import ConversationService
 from app.services.llm_client import LlmClient
+from app.services.runtime_llm import RuntimeLlmConfig, RuntimeLlmResolver
 from app.services.transformer_client import TransformerClient
 
 
@@ -26,6 +27,7 @@ class GuideMeService:
         self.conversation_service = ConversationService()
         self.llm_client = LlmClient()
         self.transformer_client = TransformerClient()
+        self.runtime_llm_resolver = RuntimeLlmResolver()
 
     async def start_session(
         self,
@@ -33,6 +35,7 @@ class GuideMeService:
         *,
         user: AuthenticatedUser,
     ) -> GuideMeSessionResponse:
+        runtime_config = self.runtime_llm_resolver.resolve_for_user(user)
         personalization = self._build_personalization(
             user=user,
             summary_type=payload.summary_type,
@@ -50,6 +53,7 @@ class GuideMeService:
             enforcement_level=payload.enforcement_level,
             personalization=personalization,
             chat_context=chat_context,
+            runtime_config=runtime_config,
         )
         initial_answers = source_analysis.get("answers", {})
         initial_step = source_analysis.get("current_step", "intro")
@@ -95,6 +99,7 @@ class GuideMeService:
         *,
         user: AuthenticatedUser,
     ) -> GuideMeSessionResponse:
+        runtime_config = self.runtime_llm_resolver.resolve_for_user(user)
         session = get_session()
         try:
             guide_session = self._get_active_session(
@@ -136,6 +141,7 @@ class GuideMeService:
                     answer=answer,
                     refinement_text=refinement_text,
                     personalization=guide_session.personalization or {},
+                    runtime_config=runtime_config,
                 )
                 final_prompt = await self._generate_final_prompt(
                     answers=answers,
@@ -145,6 +151,7 @@ class GuideMeService:
                     guide_session=guide_session,
                     answers=answers,
                     final_prompt=final_prompt,
+                    runtime_config=runtime_config,
                 )
             else:
                 raise ValueError("Guide Me session is already complete.")
@@ -155,6 +162,7 @@ class GuideMeService:
                     personalization=guide_session.personalization or {},
                     requirements=None,
                     score=None,
+                    runtime_config=runtime_config,
                 )
                 guide_session.final_prompt = _compose_final_prompt(answers)
                 guide_session.updated_at = datetime.utcnow()
@@ -169,6 +177,7 @@ class GuideMeService:
                         answer=answer,
                         answers=answers,
                         personalization=guide_session.personalization or {},
+                        runtime_config=runtime_config,
                     )
                     if current_step != "why":
                         extracted_updates.pop("instructions", None)
@@ -195,6 +204,7 @@ class GuideMeService:
                     guide_session=guide_session,
                     answers=answers,
                     final_prompt=final_prompt,
+                    runtime_config=runtime_config,
                 )
 
             guide_session.final_prompt = _compose_final_prompt(answers)
@@ -218,6 +228,7 @@ class GuideMeService:
                 personalization=guide_session.personalization or {},
                 requirements=requirements_for_examples,
                 score=score_for_examples,
+                runtime_config=runtime_config,
             )
             guide_session.updated_at = datetime.utcnow()
             session.commit()
@@ -227,6 +238,7 @@ class GuideMeService:
             session.close()
 
     async def get_session(self, *, conversation_id: str, user: AuthenticatedUser) -> GuideMeSessionResponse:
+        runtime_config = self.runtime_llm_resolver.resolve_for_user(user)
         session = get_session()
         try:
             guide_session = self._get_latest_session(
@@ -251,6 +263,7 @@ class GuideMeService:
                         existing_requirements if isinstance(existing_requirements, dict) else {},
                         refreshed_requirements,
                     )
+                    answers["_runtime_llm"] = _serialize_runtime_llm(runtime_config)
                     guide_session.answers = answers
                     guide_session.updated_at = datetime.utcnow()
                     session.commit()
@@ -400,6 +413,7 @@ class GuideMeService:
         personalization: dict,
         requirements: dict[str, dict] | None,
         score: dict[str, object] | None,
+        runtime_config: RuntimeLlmConfig,
     ) -> dict[str, str]:
         fallback = _fallback_contextual_step_examples(
             answers=answers,
@@ -413,7 +427,7 @@ class GuideMeService:
                 score=score,
                 final_prompt=_compose_final_prompt(answers),
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt)
+            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
             payload = _extract_json_object(response_text)
             examples: dict[str, str] = {}
             for key in ("describe_need", "who", "why", "how", "what"):
@@ -431,6 +445,7 @@ class GuideMeService:
         personalization: dict,
         requirements: dict[str, dict] | None,
         score: dict[str, object] | None,
+        runtime_config: RuntimeLlmConfig,
     ) -> dict[str, str]:
         updated = dict(answers)
         updated["_contextual_step_examples"] = await self._generate_contextual_step_examples(
@@ -438,7 +453,9 @@ class GuideMeService:
             personalization=personalization,
             requirements=requirements,
             score=score,
+            runtime_config=runtime_config,
         )
+        updated["_runtime_llm"] = _serialize_runtime_llm(runtime_config)
         return updated
 
     async def _generate_refinement_options(
@@ -449,6 +466,7 @@ class GuideMeService:
         requirements: dict[str, dict] | None,
         score: dict[str, object] | None,
         final_prompt: str,
+        runtime_config: RuntimeLlmConfig,
     ) -> list[str]:
         fallback = _derive_refinement_options(field=field, answers=answers, requirements=requirements)
         try:
@@ -459,7 +477,7 @@ class GuideMeService:
                 score=score,
                 final_prompt=final_prompt,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt)
+            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
             payload = _extract_json_object(response_text)
             options = payload.get("options")
             if not isinstance(options, list):
@@ -486,6 +504,7 @@ class GuideMeService:
         final_prompt: str,
         preferred_focus: str | None,
         retry_due_to_stall: bool,
+        runtime_config: RuntimeLlmConfig,
     ) -> dict[str, object]:
         fallback_focus = preferred_focus or _select_specificity_focus(
             answers=answers,
@@ -512,7 +531,7 @@ class GuideMeService:
                 preferred_focus=fallback_focus,
                 retry_due_to_stall=retry_due_to_stall,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt)
+            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
             payload = _extract_json_object(response_text)
 
             focus_area_raw = str(payload.get("focus_area") or "").strip().lower()
@@ -552,6 +571,7 @@ class GuideMeService:
         answer: str,
         answers: dict[str, str],
         personalization: dict,
+        runtime_config: RuntimeLlmConfig,
     ) -> dict[str, str]:
         fallback = _heuristic_extract_answer_updates(current_step=current_step, answer=answer)
         try:
@@ -561,7 +581,7 @@ class GuideMeService:
                 answers=answers,
                 personalization=personalization,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt)
+            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
             parsed = _extract_json_object(response_text)
             extracted: dict[str, str] = {}
             for key in ("who", "task", "context", "output", "instructions"):
@@ -579,6 +599,7 @@ class GuideMeService:
         answer: str,
         refinement_text: str,
         personalization: dict,
+        runtime_config: RuntimeLlmConfig,
     ) -> dict[str, str]:
         updated = _apply_refinement_updates(answers, refinement_text)
         if _extract_labeled_answers(refinement_text):
@@ -591,6 +612,7 @@ class GuideMeService:
             answer=refinement_text,
             answers=updated,
             personalization=personalization,
+            runtime_config=runtime_config,
         )
         if extraction_step != "why":
             extracted_updates.pop("instructions", None)
@@ -620,6 +642,7 @@ class GuideMeService:
         enforcement_level: str | None,
         personalization: dict,
         chat_context: str,
+        runtime_config: RuntimeLlmConfig,
         ) -> dict:
         if not source_prompt:
             answers = await self._refresh_contextual_step_examples(
@@ -627,6 +650,7 @@ class GuideMeService:
                 personalization=personalization,
                 requirements=None,
                 score=None,
+                runtime_config=runtime_config,
             )
             return {
                 "answers": answers,
@@ -650,11 +674,13 @@ class GuideMeService:
             answer=source_prompt,
             answers=answers,
             personalization=personalization,
+            runtime_config=runtime_config,
         )
         answers = _merge_answer_updates(answers, seeded_updates)
 
         try:
             transformed = await self.transformer_client.transform_prompt(
+                runtime_config=runtime_config,
                 session_id=f"{conversation_id}-guide",
                 conversation_id=conversation_id,
                 user_id_hash=user.user_id_hash,
@@ -694,6 +720,7 @@ class GuideMeService:
                     personalization=personalization,
                     requirements=requirements,
                     score=score,
+                    runtime_config=runtime_config,
                 )
                 return {
                     "answers": answers,
@@ -721,6 +748,7 @@ class GuideMeService:
                         personalization=personalization,
                         requirements=requirements,
                         score=score,
+                        runtime_config=runtime_config,
                     )
                     return {
                         "answers": answers,
@@ -737,6 +765,7 @@ class GuideMeService:
                         final_prompt=_compose_final_prompt(answers),
                         preferred_focus=target_field,
                         retry_due_to_stall=False,
+                        runtime_config=runtime_config,
                     )
                     current_step = _step_for_target_field(
                         field=target_field,
@@ -762,6 +791,7 @@ class GuideMeService:
                         personalization=personalization,
                         requirements=requirements,
                         score=score,
+                        runtime_config=runtime_config,
                     )
                     return {
                         "answers": answers,
@@ -779,6 +809,7 @@ class GuideMeService:
             personalization=personalization,
             requirements=None,
             score=None,
+            runtime_config=runtime_config,
         )
         return {
             "answers": answers,
@@ -788,8 +819,19 @@ class GuideMeService:
             "final_prompt": _compose_final_prompt(answers),
         }
 
-    async def _apply_validation_result(self, *, guide_session: GuideMeSession, answers: dict[str, str], final_prompt: str) -> None:
-        validation = await self._validate_compiled_prompt(guide_session=guide_session, final_prompt=final_prompt)
+    async def _apply_validation_result(
+        self,
+        *,
+        guide_session: GuideMeSession,
+        answers: dict[str, str],
+        final_prompt: str,
+        runtime_config: RuntimeLlmConfig,
+    ) -> None:
+        validation = await self._validate_compiled_prompt(
+            guide_session=guide_session,
+            final_prompt=final_prompt,
+            runtime_config=runtime_config,
+        )
         if validation["requirements"] is not None:
             answers["_transformer_requirements"] = validation["requirements"]
             synced_answers = _sync_answers_from_requirements(answers, validation["requirements"])
@@ -835,13 +877,20 @@ class GuideMeService:
         guide_session.guidance_text = str(validation.get("guidance_text") or "").strip()
         guide_session.follow_up_questions = list(validation.get("refinement_options") or [])
 
-    async def _validate_compiled_prompt(self, *, guide_session: GuideMeSession, final_prompt: str) -> dict[str, object]:
+    async def _validate_compiled_prompt(
+        self,
+        *,
+        guide_session: GuideMeSession,
+        final_prompt: str,
+        runtime_config: RuntimeLlmConfig,
+    ) -> dict[str, object]:
         answers = guide_session.answers or {}
         summary_type_raw = answers.get("_summary_type")
         summary_type = int(summary_type_raw) if isinstance(summary_type_raw, str) and summary_type_raw.isdigit() else None
         enforcement_level = answers.get("_enforcement_level")
         try:
             transformed = await self.transformer_client.transform_prompt(
+                runtime_config=runtime_config,
                 session_id=f"{guide_session.conversation_id}-guide-validate",
                 conversation_id=guide_session.conversation_id,
                 user_id_hash=guide_session.user_id_hash,
@@ -885,6 +934,7 @@ class GuideMeService:
                 final_prompt=final_prompt,
                 preferred_focus=target_field if isinstance(target_field, str) else None,
                 retry_due_to_stall=bool(specificity_decision["retry_due_to_stall"]),
+                runtime_config=runtime_config,
             )
             target_field = specificity_refinement.get("focus_field")
             refinement_options = list(specificity_refinement.get("refinement_options") or [])
@@ -900,6 +950,7 @@ class GuideMeService:
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
+                runtime_config=runtime_config,
             )
             guidance_text = _build_refinement_guidance(
                 field=raw_target_field,
@@ -991,6 +1042,17 @@ def _question_for_session(
             )
         return ("Prompt Ready", "Your guided prompt is ready. Review it and send it back to the main composer when you’re ready.")
     return (None, None)
+
+
+def _serialize_runtime_llm(runtime_config: RuntimeLlmConfig) -> dict[str, str | bool]:
+    return {
+        "tenant_id": runtime_config.tenant_id,
+        "provider": runtime_config.provider,
+        "model": runtime_config.model,
+        "source_kind": runtime_config.source_kind,
+        "transformation_enabled": runtime_config.transformation_enabled,
+        "scoring_enabled": runtime_config.scoring_enabled,
+    }
 
 
 def _contextual_step_example(

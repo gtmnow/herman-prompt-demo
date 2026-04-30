@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.schemas.chat import AttachmentReference, GeneratedImagePayload
 from app.services.conversation_store import StoredTurn
 from app.services.providers.base import LlmResponse, ProviderAdapter, UnsupportedCapabilityError
+from app.services.runtime_llm import RuntimeLlmConfig
 
 
 DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
@@ -49,25 +50,23 @@ class OpenAIAdapter(ProviderAdapter):
     async def generate_response(
         self,
         *,
+        runtime_config: RuntimeLlmConfig,
         transformed_prompt: str,
         conversation_history: list[StoredTurn],
         attachments: list[AttachmentReference],
     ) -> LlmResponse:
-        if not settings.llm_api_key:
-            raise RuntimeError("LLM_API_KEY is not configured.")
-
         document_attachments = [attachment for attachment in attachments if attachment.kind == "document"]
         image_attachments = [attachment for attachment in attachments if attachment.kind == "image"]
         wants_image_generation = _wants_image_generation(transformed_prompt)
 
-        if wants_image_generation and not _supports_openai_image_generation(settings.llm_model):
+        if wants_image_generation and not _supports_openai_image_generation(runtime_config.model):
             raise UnsupportedCapabilityError()
 
         # Responses API input is assembled from prior transformed turns plus the newest
         # transformed instruction. Image attachments are added to the latest user turn,
         # while document attachments are routed through code_interpreter.
         payload: dict[str, Any] = {
-            "model": settings.llm_model,
+            "model": runtime_config.model,
             "input": _build_input_items(
                 conversation_history=conversation_history,
                 transformed_prompt=transformed_prompt,
@@ -88,12 +87,12 @@ class OpenAIAdapter(ProviderAdapter):
                 payload["tool_choice"] = {"type": "code_interpreter"}
 
         headers = {
-            "Authorization": f"Bearer {settings.llm_api_key}",
+            "Authorization": f"Bearer {runtime_config.api_key}",
             "Content-Type": "application/json",
         }
 
         async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-            response = await client.post(f"{settings.llm_base_url}/responses", headers=headers, json=payload)
+            response = await client.post(f"{(runtime_config.endpoint_url or settings.llm_base_url).rstrip('/')}/responses", headers=headers, json=payload)
 
         if response.status_code >= 400:
             detail = _extract_error_detail(response)
@@ -111,7 +110,7 @@ class OpenAIAdapter(ProviderAdapter):
 
         return LlmResponse(text=text, generated_images=generated_images)
 
-    async def upload_attachment(self, file: UploadFile) -> AttachmentReference:
+    async def upload_attachment(self, file: UploadFile, *, runtime_config: RuntimeLlmConfig) -> AttachmentReference:
         extension = _get_extension(file.filename or "")
         if extension not in ALLOWED_EXTENSIONS:
             raise ValueError("Unsupported file type.")
@@ -123,21 +122,18 @@ class OpenAIAdapter(ProviderAdapter):
         if len(file_bytes) > MAX_FILE_SIZE_BYTES:
             raise ValueError("Uploaded file exceeds the 25 MB limit.")
 
-        if not settings.llm_api_key:
-            raise RuntimeError("LLM_API_KEY is not configured.")
-
         filename = file.filename or f"attachment-{uuid4().hex}{extension}"
         media_type = file.content_type or "application/octet-stream"
         purpose = "vision" if extension in IMAGE_EXTENSIONS else "user_data"
 
-        headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
+        headers = {"Authorization": f"Bearer {runtime_config.api_key}"}
         files = {
             "file": (filename, file_bytes, media_type),
             "purpose": (None, purpose),
         }
 
         async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-            response = await client.post(f"{settings.llm_base_url}/files", headers=headers, files=files)
+            response = await client.post(f"{(runtime_config.endpoint_url or settings.llm_base_url).rstrip('/')}/files", headers=headers, files=files)
 
         if response.status_code >= 400:
             detail = _extract_error_detail(response)

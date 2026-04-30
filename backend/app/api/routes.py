@@ -161,10 +161,10 @@ async def export_conversation(
 @router.post("/attachments/upload", response_model=AttachmentUploadResponse)
 async def upload_attachment(
     file: UploadFile = File(...),
-    _: AuthenticatedUser = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
 ) -> AttachmentUploadResponse:
     try:
-        attachment = await attachment_service.upload_attachment(file)
+        attachment = await attachment_service.upload_attachment(file, user=user)
         return AttachmentUploadResponse(attachment=attachment)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

@@ -18,6 +18,7 @@ from app.services.llm_client import LlmClient
 from app.services.transformer_client import TransformerClient
 from app.services.feedback_service import FeedbackService
 from app.services.conversation_service import ConversationService
+from app.services.runtime_llm import RuntimeLlmResolver
 
 
 class ChatService:
@@ -26,9 +27,11 @@ class ChatService:
         self.llm_client = LlmClient()
         self.feedback_service = FeedbackService()
         self.conversation_service = ConversationService()
+        self.runtime_llm_resolver = RuntimeLlmResolver()
 
     async def send_turn(self, payload: ChatSendRequest, *, user: AuthenticatedUser) -> ChatSendResponse:
         raw_user_text = payload.latest_user_text()
+        runtime_llm = self.runtime_llm_resolver.resolve_for_user(user)
         conversation_history = self.conversation_service.get_turn_history(
             conversation_id=payload.conversation_id,
             user_id_hash=user.user_id_hash,
@@ -46,8 +49,9 @@ class ChatService:
         transformer_scoring = None
         coaching_requirements = None
 
-        if payload.debug.transform_enabled:
+        if payload.debug.transform_enabled and runtime_llm.transformation_enabled:
             transformed = await self.transformer_client.transform_prompt(
+                runtime_config=runtime_llm,
                 session_id=payload.conversation_id,
                 conversation_id=payload.conversation_id,
                 user_id_hash=user.user_id_hash,
@@ -65,9 +69,12 @@ class ChatService:
             task_type = transformed.get("task_type", "unknown")
             persona_source = transformer_metadata.get("persona_source", "generic_default")
             profile_version = transformer_metadata.get("profile_version")
-            requested_model = transformer_metadata.get("requested_model", settings.llm_model)
-            resolved_model = transformer_metadata.get("resolved_model", settings.llm_model)
+            requested_provider = transformer_metadata.get("requested_provider", runtime_llm.provider)
+            requested_model = transformer_metadata.get("requested_model", runtime_llm.model)
+            resolved_provider = transformer_metadata.get("resolved_provider", runtime_llm.provider)
+            resolved_model = transformer_metadata.get("resolved_model", runtime_llm.model)
             used_fallback_model = transformer_metadata.get("used_fallback_model", False)
+            used_authoritative_tenant_llm = transformer_metadata.get("used_authoritative_tenant_llm", False)
             rules_applied = transformer_metadata.get("rules_applied", [])
 
             if transformer_result_type == "transformed":
@@ -86,6 +93,7 @@ class ChatService:
                     else None
                 )
                 llm_response = await self.llm_client.generate_response(
+                    runtime_config=runtime_llm,
                     transformed_prompt=transformed_prompt,
                     conversation_history=conversation_history,
                     attachments=payload.attachments,
@@ -122,16 +130,20 @@ class ChatService:
             task_type = "bypassed"
             persona_source = "bypassed"
             profile_version = None
-            requested_model = settings.llm_model
-            resolved_model = settings.llm_model
+            requested_provider = runtime_llm.provider
+            requested_model = runtime_llm.model
+            resolved_provider = runtime_llm.provider
+            resolved_model = runtime_llm.model
             used_fallback_model = False
+            used_authoritative_tenant_llm = False
             rules_applied = []
             transformation_applied = False
-            bypass_reason = "prompt_transform_disabled"
+            bypass_reason = "tenant_transformation_disabled" if not runtime_llm.transformation_enabled else "prompt_transform_disabled"
             assistant_kind = "assistant"
             persisted_coaching_text = ""
             coaching_requirements = None
             llm_response = await self.llm_client.generate_response(
+                runtime_config=runtime_llm,
                 transformed_prompt=transformed_prompt,
                 conversation_history=conversation_history,
                 attachments=payload.attachments,
@@ -147,7 +159,7 @@ class ChatService:
             transformed_prompt if payload.debug.show_details and transformation_applied else ""
         )
 
-        if payload.debug.transform_enabled:
+        if payload.debug.transform_enabled and runtime_llm.scoring_enabled:
             transformer_scoring = await self.transformer_client.fetch_conversation_score(
                 conversation_id=payload.conversation_id,
                 user_id_hash=user.user_id_hash,
@@ -183,9 +195,12 @@ class ChatService:
                     task_type=task_type,
                     persona_source=persona_source,
                     profile_version=profile_version,
+                    requested_provider=requested_provider,
                     requested_model=requested_model,
+                    resolved_provider=resolved_provider,
                     resolved_model=resolved_model,
                     used_fallback_model=used_fallback_model,
+                    used_authoritative_tenant_llm=used_authoritative_tenant_llm,
                     transformation_applied=transformation_applied,
                     bypass_reason=bypass_reason,
                     rules_applied=rules_applied,
@@ -197,8 +212,8 @@ class ChatService:
                     scoring=transformer_scoring,
                 ),
                 llm=LlmMetadata(
-                    provider=settings.llm_provider,
-                    model=settings.llm_model,
+                    provider=runtime_llm.provider,
+                    model=runtime_llm.model,
                 ),
             ),
         )

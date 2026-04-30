@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import Header, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +17,8 @@ from app.core.auth import (
 from app.core.config import settings
 from app.db.session import engine
 from app.schemas.chat import SessionBootstrapResponse
+from app.schemas.chat import BootstrapLlmMetadata
+from app.services.runtime_llm import RuntimeLlmConfigError, RuntimeLlmResolver
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> AuthenticatedUser:
@@ -48,11 +52,23 @@ async def build_bootstrap_response(
     except AuthError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    access_token, expires_at = issue_session_token(user)
     selected_theme = theme if theme in {"dark", "light"} else settings.auth_default_theme
     bootstrap_profile = _load_bootstrap_profile(
         user=user,
     )
+    try:
+        runtime_llm = RuntimeLlmResolver().resolve_for_user(user)
+    except RuntimeLlmConfigError as exc:
+        if user.auth_mode == "demo":
+            runtime_llm = None
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc) or "User LLM configuration not found. Contact your administrator.",
+            ) from exc
+    if runtime_llm is not None:
+        user = replace(user, tenant_id=runtime_llm.tenant_id)
+    access_token, expires_at = issue_session_token(user)
     profile_version = (
         _read_resolved_profile_field(bootstrap_profile, "profile_version")
         or user.profile_version
@@ -69,10 +85,22 @@ async def build_bootstrap_response(
         auth_mode=user.auth_mode,
         user_id_hash=user.user_id_hash,
         display_name=_read_resolved_profile_field(bootstrap_profile, "display_name") or user.display_name,
-        tenant_id=_read_resolved_profile_field(bootstrap_profile, "tenant_id") or user.tenant_id,
+        tenant_id=runtime_llm.tenant_id if runtime_llm is not None else (_read_resolved_profile_field(bootstrap_profile, "tenant_id") or user.tenant_id),
         profile_version=profile_version,
         profile_label=profile_label,
         prompt_enforcement_level=_normalize_enforcement_level(prompt_enforcement_level),
+        llm=(
+            BootstrapLlmMetadata(
+                provider=runtime_llm.provider,
+                model=runtime_llm.model,
+                configured=True,
+                transformation_enabled=runtime_llm.transformation_enabled,
+                scoring_enabled=runtime_llm.scoring_enabled,
+                source_kind=runtime_llm.source_kind,
+            )
+            if runtime_llm is not None
+            else None
+        ),
         features={
             "show_details": show_details,
             "attachments": True,

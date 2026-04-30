@@ -5,6 +5,17 @@ from app.core.config import settings
 from app.db.base import Base
 
 
+if not settings.database_url:
+    raise RuntimeError(
+        "DATABASE_URL is required. Herman Prompt refuses to start without an explicit environment-provided database."
+    )
+
+if not settings.is_development_env and settings.database_url.startswith("sqlite"):
+    raise RuntimeError(
+        "Herman Prompt refuses to start with a SQLite DATABASE_URL outside development/test environments, "
+        "including the local default database. Set DATABASE_URL to the live shared PostgreSQL database."
+    )
+
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)

@@ -166,9 +166,12 @@ class TransformerMetadata(BaseModel):
     task_type: str
     persona_source: str
     profile_version: str | None = None
+    requested_provider: str | None = None
     requested_model: str
+    resolved_provider: str | None = None
     resolved_model: str
     used_fallback_model: bool
+    used_authoritative_tenant_llm: bool = False
     transformation_applied: bool = True
     bypass_reason: str | None = None
     rules_applied: list[str] = Field(default_factory=list)
@@ -183,6 +186,15 @@ class TransformerMetadata(BaseModel):
 class LlmMetadata(BaseModel):
     provider: str
     model: str
+
+
+class BootstrapLlmMetadata(BaseModel):
+    provider: str
+    model: str
+    configured: bool
+    transformation_enabled: bool = True
+    scoring_enabled: bool = True
+    source_kind: str | None = None
 
 
 class ChatResponseMetadata(BaseModel):
@@ -275,6 +287,7 @@ class SessionBootstrapResponse(BaseModel):
     profile_version: str | None = None
     profile_label: str | None = None
     prompt_enforcement_level: Literal["none", "low", "moderate", "full"] | None = None
+    llm: BootstrapLlmMetadata | None = None
     features: dict[str, bool] = Field(default_factory=dict)
     branding: dict[str, str] = Field(default_factory=dict)
     debug: dict[str, bool | int | str | None] = Field(default_factory=dict)

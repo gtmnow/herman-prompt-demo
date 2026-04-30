@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     prompt_transformer_url: str = Field(default="http://localhost:8001", alias="PROMPT_TRANSFORMER_URL")
     prompt_transformer_api_key: str = Field(default="", alias="PROMPT_TRANSFORMER_API_KEY")
     prompt_transformer_client_id: str = Field(default="hermanprompt", alias="PROMPT_TRANSFORMER_CLIENT_ID")
+    shared_secret_vault_master_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "HERMAN_SHARED_SECRET_VAULT_MASTER_KEY",
+            "HERMAN_RUNTIME_SECRET_VAULT_MASTER_KEY",
+            "HERMAN_ADMIN_SECRET_VAULT_MASTER_KEY",
+        ),
+    )
+    shared_secret_vault_local_key_path: str = Field(default="./data/.secret_vault.key", alias="SHARED_SECRET_VAULT_LOCAL_KEY_PATH")
     llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
     llm_model: str = Field(default="gpt-4.1", alias="LLM_MODEL")
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
@@ -28,7 +37,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
     llm_max_tokens: int = Field(default=800, alias="LLM_MAX_TOKENS")
     llm_timeout_seconds: float = Field(default=45.0, alias="LLM_TIMEOUT_SECONDS")
-    database_url: str = Field(default="sqlite:///./hermanprompt.db", alias="DATABASE_URL")
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
     cors_allowed_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ALLOWED_ORIGINS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -36,6 +45,10 @@ class Settings(BaseSettings):
     @property
     def cors_allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins_raw.split(",") if origin.strip()]
+
+    @property
+    def is_development_env(self) -> bool:
+        return self.app_env.strip().lower() in {"dev", "development", "local", "test", "testing"}
 
 
 @lru_cache

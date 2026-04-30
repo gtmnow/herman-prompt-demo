@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.runtime_llm import RuntimeLlmConfig
 
 
 class TransformerClient:
@@ -30,6 +31,7 @@ class TransformerClient:
     async def transform_prompt(
         self,
         *,
+        runtime_config: RuntimeLlmConfig,
         session_id: str,
         conversation_id: str,
         user_id_hash: str,
@@ -47,8 +49,8 @@ class TransformerClient:
             "user_id_hash": user_id_hash,
             "raw_prompt": raw_prompt,
             "target_llm": {
-                "provider": settings.llm_provider,
-                "model": settings.llm_model,
+                "provider": runtime_config.provider,
+                "model": runtime_config.model,
             },
         }
         if conversation is not None:

@@ -6,6 +6,7 @@ from fastapi import UploadFile
 
 from app.schemas.chat import AttachmentReference, GeneratedImagePayload
 from app.services.conversation_store import StoredTurn
+from app.services.runtime_llm import RuntimeLlmConfig
 
 
 UNSUPPORTED_LLM_MESSAGE = (
@@ -31,6 +32,7 @@ class ProviderAdapter(ABC):
     async def generate_response(
         self,
         *,
+        runtime_config: RuntimeLlmConfig,
         transformed_prompt: str,
         conversation_history: list[StoredTurn],
         attachments: list[AttachmentReference],
@@ -38,5 +40,5 @@ class ProviderAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def upload_attachment(self, file: UploadFile) -> AttachmentReference:
+    async def upload_attachment(self, file: UploadFile, *, runtime_config: RuntimeLlmConfig) -> AttachmentReference:
         raise NotImplementedError

@@ -13,11 +13,12 @@ class OllamaAdapter(ProviderAdapter):
     async def generate_response(
         self,
         *,
+        runtime_config,
         transformed_prompt: str,
         conversation_history: list[StoredTurn],
         attachments: list[AttachmentReference],
     ) -> LlmResponse:
         raise UnsupportedCapabilityError()
 
-    async def upload_attachment(self, file: UploadFile) -> AttachmentReference:
+    async def upload_attachment(self, file: UploadFile, *, runtime_config) -> AttachmentReference:
         raise UnsupportedCapabilityError()
