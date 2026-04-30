@@ -8,7 +8,7 @@ from app.services.providers.openai_adapter import OpenAIAdapter
 def get_provider_adapter(provider_name: str) -> ProviderAdapter:
     provider = provider_name.strip().casefold()
 
-    if provider == "openai":
+    if provider in {"openai", "xai"}:
         return OpenAIAdapter()
 
     if provider == "ollama":
