@@ -182,20 +182,44 @@ input {
 .conversation-folder-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
+}
+
+.conversation-folder-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .conversation-folder-name {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  min-width: 0;
   border: 0;
   padding: 0;
   background: transparent;
   color: var(--text);
   font-size: 1rem;
   cursor: pointer;
+  flex: 1;
+}
+
+.conversation-folder-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-folder-row .conversation-icon-button {
+  margin-left: auto;
 }
 
 .conversation-sidebar-footer {
@@ -246,6 +270,7 @@ input {
   border-radius: 14px;
   text-align: left;
   cursor: pointer;
+  min-width: 0;
 }
 
 .conversation-item.is-active {
@@ -278,12 +303,14 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .conversation-item-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .conversation-icon-button {
@@ -308,6 +335,37 @@ input {
 .conversation-icon {
   width: 16px;
   height: 16px;
+}
+
+.conversation-folder-conversations {
+  padding-left: 14px;
+}
+
+.conversation-item.is-nested {
+  width: 100%;
+  padding: 10px;
+}
+
+.conversation-item.is-nested .conversation-item-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-item.is-nested .conversation-item-actions {
+  gap: 4px;
+}
+
+.conversation-item.is-nested .conversation-icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.conversation-item.is-nested .conversation-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .topbar {

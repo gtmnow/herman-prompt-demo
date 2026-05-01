@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type ConversationSummary = {
   id: string;
   title: string;
@@ -57,6 +59,25 @@ export function ConversationSidebar({
 }: ConversationSidebarProps) {
   const hasConversations = unfiledConversations.length > 0 || folders.some((folder) => folder.conversations.length > 0);
   const hasFolders = folders.length > 0;
+  const [openFolderIds, setOpenFolderIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setOpenFolderIds((current) => {
+      const next: Record<string, boolean> = {};
+      for (const folder of folders) {
+        const containsActiveConversation = folder.conversations.some((conversation) => conversation.id === activeConversationId);
+        next[folder.id] = current[folder.id] ?? containsActiveConversation;
+      }
+      return next;
+    });
+  }, [activeConversationId, folders]);
+
+  function toggleFolder(folderId: string) {
+    setOpenFolderIds((current) => ({
+      ...current,
+      [folderId]: !current[folderId],
+    }));
+  }
 
   return (
     <aside className={`conversation-sidebar ${collapsed ? "is-collapsed" : ""} ${isMobile ? "is-mobile" : ""}`}>
@@ -110,12 +131,20 @@ export function ConversationSidebar({
                   <div key={folder.id} className="conversation-folder-group">
                     <div className="conversation-folder-row">
                       <button
+                        aria-label={`${openFolderIds[folder.id] ? "Close" : "Open"} folder ${folder.name}`}
+                        className="conversation-folder-toggle"
+                        disabled={actionBusy}
+                        type="button"
+                        onClick={() => toggleFolder(folder.id)}
+                      >
+                        <FolderIcon open={Boolean(openFolderIds[folder.id])} />
+                      </button>
+                      <button
                         className="conversation-folder-name"
                         disabled={actionBusy}
                         type="button"
                         onClick={() => onOpenFolderRename(folder)}
                       >
-                        <FolderIcon />
                         <span>{folder.name}</span>
                       </button>
                       <button
@@ -128,25 +157,28 @@ export function ConversationSidebar({
                         <TrashIcon />
                       </button>
                     </div>
-                    <div className="conversation-folder-conversations">
-                      {folder.conversations.length === 0 ? (
-                        <div className="conversation-sidebar-note">No conversations in this folder.</div>
-                      ) : (
-                        folder.conversations.map((conversation) => (
-                          <ConversationCard
-                            key={conversation.id}
-                            actionBusy={actionBusy}
-                            activeConversationId={activeConversationId}
-                            conversation={conversation}
-                            onDeleteConversation={onDeleteConversation}
-                            onExportConversation={onExportConversation}
-                            onMoveConversation={onOpenMoveConversation}
-                            onRenameConversation={onOpenConversationRename}
-                            onSelectConversation={onSelectConversation}
-                          />
-                        ))
-                      )}
-                    </div>
+                    {openFolderIds[folder.id] ? (
+                      <div className="conversation-folder-conversations">
+                        {folder.conversations.length === 0 ? (
+                          <div className="conversation-sidebar-note">No conversations in this folder.</div>
+                        ) : (
+                          folder.conversations.map((conversation) => (
+                            <ConversationCard
+                              key={conversation.id}
+                              actionBusy={actionBusy}
+                              activeConversationId={activeConversationId}
+                              conversation={conversation}
+                              nested
+                              onDeleteConversation={onDeleteConversation}
+                              onExportConversation={onExportConversation}
+                              onMoveConversation={onOpenMoveConversation}
+                              onRenameConversation={onOpenConversationRename}
+                              onSelectConversation={onSelectConversation}
+                            />
+                          ))
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ))
               )}
@@ -175,6 +207,7 @@ type ConversationCardProps = {
   actionBusy: boolean;
   activeConversationId: string;
   conversation: ConversationSummary;
+  nested?: boolean;
   onDeleteConversation: (conversationId: string) => void;
   onExportConversation: (conversationId: string) => void;
   onMoveConversation: (conversation: ConversationSummary) => void;
@@ -186,6 +219,7 @@ function ConversationCard({
   actionBusy,
   activeConversationId,
   conversation,
+  nested = false,
   onDeleteConversation,
   onExportConversation,
   onMoveConversation,
@@ -194,7 +228,7 @@ function ConversationCard({
 }: ConversationCardProps) {
   return (
     <div
-      className={`conversation-item ${conversation.id === activeConversationId ? "is-active" : ""}`}
+      className={`conversation-item ${conversation.id === activeConversationId ? "is-active" : ""} ${nested ? "is-nested" : ""}`}
       role="button"
       tabIndex={0}
       onClick={() => onSelectConversation(conversation.id)}
@@ -261,13 +295,20 @@ function ConversationCard({
   );
 }
 
-function FolderIcon() {
+function FolderIcon({ open = false }: { open?: boolean }) {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M3 7.4c0-1 .8-1.8 1.8-1.8h4.1l1.8 2h8.5c1 0 1.8.8 1.8 1.8v7.8c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.4Z"
-        fill="currentColor"
-      />
+      {open ? (
+        <path
+          d="M3.5 8.3c0-.9.8-1.6 1.7-1.6h4l1.7 1.8h8c1.1 0 1.9 1 1.6 2l-1.5 6c-.2.8-.8 1.3-1.6 1.3H5.2c-1 0-1.7-.8-1.7-1.7V8.3Z"
+          fill="currentColor"
+        />
+      ) : (
+        <path
+          d="M3 7.4c0-1 .8-1.8 1.8-1.8h4.1l1.8 2h8.5c1 0 1.8.8 1.8 1.8v7.8c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.4Z"
+          fill="currentColor"
+        />
+      )}
     </svg>
   );
 }
