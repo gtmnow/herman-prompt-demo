@@ -299,16 +299,23 @@ function FileConversationIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.2 8c0-1 .8-1.8 1.8-1.8h3.8l1.7 1.8h8.5c1 0 1.8.8 1.8 1.8v6.8c0 1-.8 1.8-1.8 1.8H5c-1 0-1.8-.8-1.8-1.8V8Z"
+        d="M3.4 8.3c0-1 .8-1.8 1.8-1.8h3.7l1.6 1.8h8.3c1 0 1.8.8 1.8 1.8v6.6c0 1-.8 1.8-1.8 1.8H5.2c-1 0-1.8-.8-1.8-1.8V8.3Z"
         fill="currentColor"
       />
       <path
-        d="M12 3.5v7.6m0 0 2.8-2.8M12 11.1 9.2 8.3"
+        d="M12 2.8v7m0 0 2.6-2.6M12 9.8 9.4 7.2"
         fill="none"
         stroke="#fff"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="1.9"
+        strokeWidth="2.1"
+      />
+      <path
+        d="M7.1 9.7h9.8"
+        fill="none"
+        stroke="#fff"
+        strokeLinecap="round"
+        strokeWidth="1.6"
       />
     </svg>
   );
@@ -318,15 +325,15 @@ function OpenFolderIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.5 8.4c0-.9.8-1.7 1.7-1.7h4l1.7 1.7h8c1.1 0 1.9 1 1.6 2l-1.4 5.8c-.2.8-.9 1.4-1.7 1.4H5.2c-1 0-1.7-.8-1.7-1.7V8.4Z"
+        d="M3.9 8.6c0-.9.7-1.6 1.6-1.6h3.7l1.5 1.5H19c1 0 1.7.9 1.5 1.9l-1.3 5.3c-.2.8-.9 1.3-1.6 1.3H5.4c-.9 0-1.6-.7-1.6-1.6V8.6Z"
         fill="currentColor"
       />
       <path
-        d="M4.2 9.4h14.8"
+        d="M4.7 9.4h14.2"
         fill="none"
         stroke="#fff"
         strokeLinecap="round"
-        strokeWidth="1.4"
+        strokeWidth="1.5"
       />
     </svg>
   );
@@ -336,7 +343,7 @@ function ClosedFolderIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.2 7.3c0-1 .8-1.8 1.8-1.8h4.2l1.6 1.8h8.2c1 0 1.8.8 1.8 1.8v7.6c0 1-.8 1.8-1.8 1.8H5c-1 0-1.8-.8-1.8-1.8V7.3Z"
+        d="M3.5 7.6c0-1 .8-1.8 1.8-1.8h4l1.7 1.7h8c1 0 1.8.8 1.8 1.8v7.2c0 1-.8 1.8-1.8 1.8H5.3c-1 0-1.8-.8-1.8-1.8V7.6Z"
         fill="currentColor"
       />
     </svg>

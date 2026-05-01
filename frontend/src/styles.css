@@ -153,6 +153,7 @@ input {
   gap: 10px;
   min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
 }
 
 .conversation-section,
@@ -271,6 +272,7 @@ input {
   text-align: left;
   cursor: pointer;
   min-width: 0;
+  width: 100%;
 }
 
 .conversation-item.is-active {
@@ -281,6 +283,7 @@ input {
 .conversation-item-title {
   overflow: hidden;
   text-overflow: ellipsis;
+  display: block;
   white-space: nowrap;
 }
 
@@ -291,6 +294,7 @@ input {
   color: inherit;
   text-align: left;
   cursor: pointer;
+  min-width: 0;
 }
 
 .conversation-item-date {
@@ -299,9 +303,9 @@ input {
 }
 
 .conversation-item-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   min-width: 0;
 }
@@ -309,8 +313,10 @@ input {
 .conversation-item-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 6px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .conversation-icon-button {
@@ -338,34 +344,40 @@ input {
 }
 
 .conversation-folder-conversations {
-  padding-left: 14px;
+  padding-left: 12px;
+  padding-right: 10px;
+  min-width: 0;
 }
 
 .conversation-item.is-nested {
-  width: 100%;
-  padding: 10px;
+  width: calc(100% - 2px);
+  margin-right: 10px;
+  padding: 10px 10px 9px;
 }
 
 .conversation-item.is-nested .conversation-item-footer {
-  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .conversation-item.is-nested .conversation-item-actions {
-  gap: 4px;
+  gap: 3px;
 }
 
 .conversation-item.is-nested .conversation-icon-button {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 9px;
 }
 
 .conversation-item.is-nested .conversation-icon {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
+}
+
+.conversation-item.is-nested .conversation-item-date {
+  font-size: 0.8rem;
 }
 
 .topbar {
