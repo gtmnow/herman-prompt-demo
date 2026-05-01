@@ -137,6 +137,11 @@ input {
   cursor: pointer;
 }
 
+.sidebar-arrow-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .sidebar-new-button {
   margin-left: auto;
   border-radius: 999px;
@@ -1209,7 +1214,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 10px 14px;
-  background: color-mix(in srgb, var(--coaching) 78%, var(--panel-soft));
+  background: color-mix(in srgb, var(--panel-soft) 85%, transparent);
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
@@ -1221,7 +1226,7 @@ input {
 }
 
 .guide-me-composer-button:hover {
-  border-color: color-mix(in srgb, #d3a34a 48%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
 .guide-me-composer-button:disabled {

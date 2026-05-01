@@ -82,17 +82,21 @@ export function ConversationSidebar({
   return (
     <aside className={`conversation-sidebar ${collapsed ? "is-collapsed" : ""} ${isMobile ? "is-mobile" : ""}`}>
       <div className="conversation-sidebar-header">
-        <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
-          {collapsed ? ">" : "<"}
-        </button>
-        {!collapsed ? (
+        {collapsed ? (
+          <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
+            <SidebarArrowIcon direction="right" />
+          </button>
+        ) : (
           <>
             <div className="conversation-sidebar-title">Conversations</div>
             <button className="sidebar-new-button" type="button" onClick={onStartConversation}>
               New Chat
             </button>
+            <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
+              <SidebarArrowIcon direction="left" />
+            </button>
           </>
-        ) : null}
+        )}
       </div>
 
       {!collapsed ? (
@@ -200,6 +204,28 @@ export function ConversationSidebar({
         </>
       ) : null}
     </aside>
+  );
+}
+
+function SidebarArrowIcon({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg aria-hidden="true" className="sidebar-arrow-icon" viewBox="0 0 24 24">
+      <path
+        d={direction === "left" ? "M15.5 5.5 8.5 12l7 6.5" : "M8.5 5.5 15.5 12l-7 6.5"}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.2"
+      />
+      <path
+        d={direction === "left" ? "M9.5 12h8" : "M6.5 12h8"}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2.2"
+      />
+    </svg>
   );
 }
 
