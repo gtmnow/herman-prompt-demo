@@ -81,7 +81,7 @@ input {
 
 .chat-main {
   display: grid;
-  grid-template-rows: auto auto 1fr auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   gap: 20px;
   min-height: 0;
   overflow: hidden;

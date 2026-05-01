@@ -875,6 +875,7 @@ class GuideMeService:
     ) -> None:
         validation = await self._validate_compiled_prompt(
             guide_session=guide_session,
+            answers=answers,
             final_prompt=final_prompt,
             runtime_config=runtime_config,
         )
@@ -927,13 +928,14 @@ class GuideMeService:
         self,
         *,
         guide_session: GuideMeSession,
+        answers: dict[str, str],
         final_prompt: str,
         runtime_config: RuntimeLlmConfig,
     ) -> dict[str, object]:
-        answers = guide_session.answers or {}
-        summary_type_raw = answers.get("_summary_type")
+        current_answers = dict(answers)
+        summary_type_raw = current_answers.get("_summary_type")
         summary_type = int(summary_type_raw) if isinstance(summary_type_raw, str) and summary_type_raw.isdigit() else None
-        enforcement_level = answers.get("_enforcement_level")
+        enforcement_level = current_answers.get("_enforcement_level")
         try:
             transformed = await self.transformer_client.transform_prompt(
                 runtime_config=runtime_config,
@@ -960,23 +962,23 @@ class GuideMeService:
             user_id_hash=guide_session.user_id_hash,
         )
         requirements = _extract_transformer_requirements(transformed=transformed, score=None)
-        answers = _sync_answers_from_requirements(answers, requirements)
+        current_answers = _sync_answers_from_requirements(current_answers, requirements)
         raw_target_field = _select_target_field_for_refinement(
             requirements=requirements,
-            excluded_fields=_get_refined_fields(answers),
+            excluded_fields=_get_refined_fields(current_answers),
         )
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         structure_maxed = _all_requirement_scores_maxed(requirements)
         specificity_decision = _resolve_specificity_decision(
-            answers=answers,
+            answers=current_answers,
             requirements=requirements,
             score=score,
             default_focus=None if structure_maxed else raw_target_field,
         )
         target_field = specificity_decision["focus_field"]
-        if _should_enter_specificity_mode(answers=answers, requirements=requirements) and not passes:
-            if raw_target_field is None and _get_refined_fields(answers):
+        if _should_enter_specificity_mode(answers=current_answers, requirements=requirements) and not passes:
+            if raw_target_field is None and _get_refined_fields(current_answers):
                 return {
                     "passes": True,
                     "failing_field": failing_field,
@@ -989,7 +991,7 @@ class GuideMeService:
                     "next_step": "complete",
                 }
             specificity_refinement = await self._generate_specificity_refinement(
-                answers=answers,
+                answers=current_answers,
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
@@ -1007,7 +1009,7 @@ class GuideMeService:
         else:
             refinement_options = await self._generate_refinement_options(
                 field=raw_target_field,
-                answers=answers,
+                answers=current_answers,
                 requirements=requirements,
                 score=score,
                 final_prompt=final_prompt,
@@ -1023,7 +1025,7 @@ class GuideMeService:
             "complete"
             if passes
             else _next_guide_me_step(
-                answers=answers,
+                answers=current_answers,
                 requirements=requirements,
                 target_field=target_field if isinstance(target_field, str) else None,
                 mode=mode,

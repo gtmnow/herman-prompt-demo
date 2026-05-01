@@ -225,6 +225,79 @@ class FakeTransformerClient:
         }
 
 
+class FakeTransformerClientMultiWeak(FakeTransformerClient):
+    async def transform_prompt(
+        self,
+        *,
+        runtime_config: Any | None = None,
+        session_id: str,
+        conversation_id: str,
+        user_id_hash: str,
+        raw_prompt: str,
+        conversation: dict[str, Any] | None = None,
+        summary_type: int | None = None,
+        enforcement_level: str | None = None,
+    ) -> dict[str, Any]:
+        lowered = raw_prompt.lower()
+        self.latest_prompt_by_conversation[conversation_id] = lowered
+        complete_context = all(token in lowered for token in ("saas", "renewal", "stakeholder"))
+        complete_output = "five bullet points" in lowered
+        requirements = {
+            "who": self._req("present", 25, None, 25, "Role is clear.", None, self._extract_section(raw_prompt, "Who")),
+            "task": self._req("present", 25, None, 25, "Task is clear.", None, self._extract_section(raw_prompt, "Task")),
+            "context": self._req(
+                "present",
+                25 if complete_context else 0,
+                None,
+                25,
+                "Context needs more concrete role requirements and operating details." if not complete_context else "Context is concrete and actionable.",
+                "Add the missing experience requirements, operating environment, and must-have skills." if not complete_context else None,
+                self._extract_section(raw_prompt, "Context"),
+            ),
+            "output": self._req(
+                "present",
+                25 if complete_output else 10,
+                None,
+                25,
+                "Output needs more exact structure." if not complete_output else "Output is clear.",
+                "Specify exact section counts and required structure." if not complete_output else None,
+                self._extract_section(raw_prompt, "Output"),
+            ),
+        }
+        return {
+            "result_type": "transformed",
+            "conversation": {
+                "conversation_id": conversation_id,
+                "requirements": requirements,
+            },
+        }
+
+    async def fetch_conversation_score(
+        self,
+        *,
+        conversation_id: str,
+        user_id_hash: str,
+    ) -> dict[str, Any] | None:
+        latest_prompt = self.latest_prompt_by_conversation.get(conversation_id, "")
+        has_context = all(token in latest_prompt for token in ("saas", "renewal", "stakeholder"))
+        has_output = "five bullet points" in latest_prompt
+        if has_context and has_output:
+            final_score = 100
+            final_llm_score = 100
+        elif has_context:
+            final_score = 90
+            final_llm_score = 100
+        else:
+            final_score = 80
+            final_llm_score = 100
+        return {
+            "conversation_id": conversation_id,
+            "final_score": final_score,
+            "final_llm_score": final_llm_score,
+            "structural_score": 100,
+        }
+
+
 class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -439,6 +512,41 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("attracting a high volume of applicants", updated.final_prompt or "")
         self.assertIn("renewal ownership", updated.final_prompt or "")
         self.assertIn("stakeholder management", updated.final_prompt or "")
+
+    async def test_refine_does_not_target_the_same_field_twice_in_one_session(self) -> None:
+        self.service.transformer_client = FakeTransformerClientMultiWeak()
+        source_prompt = (
+            "Who: You are an experienced recruiting strategist helping me improve hiring quality for a Customer Success Manager position role.\n\n"
+            "Task: Reduce the number of unqualified candidates applying for the Customer Success Manager position\n\n"
+            "Context: Our current job postings for the Customer Success Manager position are attracting a high volume of applicants who do not meet the minimum requirements.\n\n"
+            "Output: Format your response with clear section headers and three numbered actions."
+        )
+        start = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_no_repeat_refine",
+                source_prompt=source_prompt,
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+        session = start.session
+        assert session is not None
+        self.assertEqual(session.current_step, "refine")
+        self.assertEqual(session.decision_trace.get("target_field"), "context")
+
+        refined = await self.service.respond(
+            GuideMeRespondRequest(
+                conversation_id="conv_no_repeat_refine",
+                answer="1",
+            ),
+            user=self.user,
+        )
+
+        updated = refined.session
+        assert updated is not None
+        self.assertEqual(updated.current_step, "refine")
+        self.assertEqual(updated.decision_trace.get("target_field"), "output")
+        self.assertNotEqual(updated.decision_trace.get("target_field"), "context")
 
     async def test_update_draft_persists_manual_prompt_edits(self) -> None:
         start = await self.service.start_session(
