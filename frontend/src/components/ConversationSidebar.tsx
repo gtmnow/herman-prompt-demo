@@ -137,7 +137,7 @@ export function ConversationSidebar({
                         type="button"
                         onClick={() => toggleFolder(folder.id)}
                       >
-                        <FolderIcon open={Boolean(openFolderIds[folder.id])} />
+                        {openFolderIds[folder.id] ? <OpenFolderIcon /> : <ClosedFolderIcon />}
                       </button>
                       <button
                         className="conversation-folder-name"
@@ -263,7 +263,7 @@ function ConversationCard({
               onMoveConversation(conversation);
             }}
           >
-            <FolderIcon />
+            <FileConversationIcon />
           </button>
           <button
             aria-label={`Export ${conversation.title}`}
@@ -295,20 +295,50 @@ function ConversationCard({
   );
 }
 
-function FolderIcon({ open = false }: { open?: boolean }) {
+function FileConversationIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      {open ? (
-        <path
-          d="M3.5 8.3c0-.9.8-1.6 1.7-1.6h4l1.7 1.8h8c1.1 0 1.9 1 1.6 2l-1.5 6c-.2.8-.8 1.3-1.6 1.3H5.2c-1 0-1.7-.8-1.7-1.7V8.3Z"
-          fill="currentColor"
-        />
-      ) : (
-        <path
-          d="M3 7.4c0-1 .8-1.8 1.8-1.8h4.1l1.8 2h8.5c1 0 1.8.8 1.8 1.8v7.8c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.4Z"
-          fill="currentColor"
-        />
-      )}
+      <path
+        d="M3.2 8c0-1 .8-1.8 1.8-1.8h3.8l1.7 1.8h8.5c1 0 1.8.8 1.8 1.8v6.8c0 1-.8 1.8-1.8 1.8H5c-1 0-1.8-.8-1.8-1.8V8Z"
+        fill="currentColor"
+      />
+      <path
+        d="M12 3.5v7.6m0 0 2.8-2.8M12 11.1 9.2 8.3"
+        fill="none"
+        stroke="#fff"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.9"
+      />
+    </svg>
+  );
+}
+
+function OpenFolderIcon() {
+  return (
+    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
+      <path
+        d="M3.5 8.4c0-.9.8-1.7 1.7-1.7h4l1.7 1.7h8c1.1 0 1.9 1 1.6 2l-1.4 5.8c-.2.8-.9 1.4-1.7 1.4H5.2c-1 0-1.7-.8-1.7-1.7V8.4Z"
+        fill="currentColor"
+      />
+      <path
+        d="M4.2 9.4h14.8"
+        fill="none"
+        stroke="#fff"
+        strokeLinecap="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+}
+
+function ClosedFolderIcon() {
+  return (
+    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
+      <path
+        d="M3.2 7.3c0-1 .8-1.8 1.8-1.8h4.2l1.6 1.8h8.2c1 0 1.8.8 1.8 1.8v7.6c0 1-.8 1.8-1.8 1.8H5c-1 0-1.8-.8-1.8-1.8V7.3Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
