@@ -87,7 +87,7 @@ export function Header({
           </select>
         </label>
         <label className="profile-picker">
-          <span className="profile-picker-label">Enforcement</span>
+          <span className="profile-picker-label">Coaching</span>
           <select
             aria-label="Select prompt enforcement level"
             className="profile-picker-select"

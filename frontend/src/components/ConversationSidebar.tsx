@@ -299,23 +299,20 @@ function FileConversationIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.4 8.3c0-1 .8-1.8 1.8-1.8h3.7l1.6 1.8h8.3c1 0 1.8.8 1.8 1.8v6.6c0 1-.8 1.8-1.8 1.8H5.2c-1 0-1.8-.8-1.8-1.8V8.3Z"
-        fill="currentColor"
-      />
-      <path
-        d="M12 2.8v7m0 0 2.6-2.6M12 9.8 9.4 7.2"
+        d="M4.3 9.8c0-.8.7-1.5 1.5-1.5h4.1l1.4 1.4h6.9c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5H5.8c-.8 0-1.5-.7-1.5-1.5V9.8Z"
         fill="none"
-        stroke="#fff"
+        stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2.1"
+        strokeWidth="1.8"
       />
       <path
-        d="M7.1 9.7h9.8"
+        d="M12 3.1v7m0 0 2.7-2.7M12 10.1 9.3 7.4"
         fill="none"
-        stroke="#fff"
+        stroke="currentColor"
         strokeLinecap="round"
-        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
       />
     </svg>
   );
@@ -325,14 +322,11 @@ function OpenFolderIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.9 8.6c0-.9.7-1.6 1.6-1.6h3.7l1.5 1.5H19c1 0 1.7.9 1.5 1.9l-1.3 5.3c-.2.8-.9 1.3-1.6 1.3H5.4c-.9 0-1.6-.7-1.6-1.6V8.6Z"
-        fill="currentColor"
-      />
-      <path
-        d="M4.7 9.4h14.2"
+        d="M4.2 8.8c0-.8.7-1.4 1.4-1.4h4.2l1.5 1.4h6.8c.9 0 1.6.8 1.4 1.6l-1.2 5.2c-.2.7-.8 1.2-1.5 1.2H5.9c-.9 0-1.6-.7-1.6-1.6l-.1-6.4Z"
         fill="none"
-        stroke="#fff"
+        stroke="currentColor"
         strokeLinecap="round"
+        strokeLinejoin="round"
         strokeWidth="1.5"
       />
     </svg>
@@ -343,8 +337,12 @@ function ClosedFolderIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M3.5 7.6c0-1 .8-1.8 1.8-1.8h4l1.7 1.7h8c1 0 1.8.8 1.8 1.8v7.2c0 1-.8 1.8-1.8 1.8H5.3c-1 0-1.8-.8-1.8-1.8V7.6Z"
-        fill="currentColor"
+        d="M4.4 7.7c0-.8.7-1.5 1.5-1.5h4.1l1.5 1.4h6.7c.8 0 1.5.7 1.5 1.5v7.2c0 .8-.7 1.5-1.5 1.5H5.9c-.8 0-1.5-.7-1.5-1.5V7.7Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
       />
     </svg>
   );
