@@ -19,6 +19,7 @@ from app.schemas.chat import (
     FeedbackRequest,
     FeedbackResponse,
     GuideMeCancelResponse,
+    GuideMeDraftUpdateRequest,
     GuideMeRespondRequest,
     GuideMeSessionResponse,
     GuideMeStartRequest,
@@ -108,6 +109,22 @@ async def cancel_guide_me(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> GuideMeCancelResponse:
     return await guide_me_service.cancel_session(conversation_id=conversation_id, user=user)
+
+
+@router.patch("/guide-me/{conversation_id}/draft", response_model=GuideMeSessionResponse)
+async def update_guide_me_draft(
+    conversation_id: str,
+    payload: GuideMeDraftUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> GuideMeSessionResponse:
+    try:
+        return await guide_me_service.update_draft(
+            conversation_id=conversation_id,
+            draft_text=payload.draft_text,
+            user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/conversations", response_model=ConversationListResponse)

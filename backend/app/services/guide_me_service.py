@@ -134,6 +134,7 @@ class GuideMeService:
             elif current_step in {"who", "why", "how", "what"}:
                 pass
             elif current_step == "refine":
+                refined_field = str(answers.get("_target_field") or "").strip() or None
                 refinement_text = _resolve_refinement_selection(answer, guide_session.follow_up_questions or [])
                 answers["refinements"] = refinement_text
                 answers = await self._apply_refinement_answer_updates(
@@ -143,6 +144,7 @@ class GuideMeService:
                     personalization=guide_session.personalization or {},
                     runtime_config=runtime_config,
                 )
+                answers = _mark_field_refined(answers, refined_field)
                 final_prompt = await self._generate_final_prompt(
                     answers=answers,
                     personalization=guide_session.personalization or {},
@@ -288,6 +290,53 @@ class GuideMeService:
                 guide_session.updated_at = datetime.utcnow()
                 session.commit()
             return GuideMeCancelResponse(status="cancelled")
+        finally:
+            session.close()
+
+    async def update_draft(
+        self,
+        *,
+        conversation_id: str,
+        draft_text: str,
+        user: AuthenticatedUser,
+    ) -> GuideMeSessionResponse:
+        runtime_config = self.runtime_llm_resolver.resolve_for_user(user)
+        session = get_session()
+        try:
+            guide_session = self._get_latest_session(
+                session=session,
+                conversation_id=conversation_id,
+                user_id_hash=user.user_id_hash,
+            )
+            if guide_session is None:
+                raise ValueError("Guide Me session not found.")
+
+            cleaned_draft = draft_text.strip()
+            if not cleaned_draft:
+                raise ValueError("Guide Me draft cannot be empty.")
+
+            answers = dict(guide_session.answers or {})
+            parsed_answers = _extract_labeled_answers(cleaned_draft)
+            if parsed_answers:
+                for key in ("who", "task", "context", "output", "instructions"):
+                    if key in parsed_answers:
+                        answers[key] = parsed_answers[key]
+                answers = _harmonize_prompt_answers(answers)
+
+                await self._apply_validation_result(
+                    guide_session=guide_session,
+                    answers=answers,
+                    final_prompt=cleaned_draft,
+                    runtime_config=runtime_config,
+                )
+            else:
+                guide_session.final_prompt = cleaned_draft
+
+            guide_session.answers = answers
+            guide_session.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(guide_session)
+            return GuideMeSessionResponse(session=self._serialize_session(guide_session))
         finally:
             session.close()
 
@@ -622,13 +671,8 @@ class GuideMeService:
             updates=extracted_updates,
         )
         updated = _merge_answer_updates(updated, extracted_updates)
-        updated = _apply_primary_step_answer(
-            current_step=extraction_step,
-            answer=refinement_text,
-            answers=updated,
-        )
         if target_field in {"who", "task", "context", "output"} and not str(updated.get(target_field) or "").strip():
-            updated[target_field] = refinement_text.strip()
+            updated = _merge_answer_updates(updated, {target_field: refinement_text.strip()})
         updated["refinements"] = ""
         return updated
 
@@ -669,14 +713,16 @@ class GuideMeService:
         if enforcement_level:
             answers["_enforcement_level"] = enforcement_level
 
-        seeded_updates = await self._extract_answer_updates(
-            current_step="describe_need",
-            answer=source_prompt,
-            answers=answers,
-            personalization=personalization,
-            runtime_config=runtime_config,
-        )
-        answers = _merge_answer_updates(answers, seeded_updates)
+        has_labeled_core_prompt = all(str(answers.get(key) or "").strip() for key in ("who", "task", "context", "output"))
+        if not has_labeled_core_prompt:
+            seeded_updates = await self._extract_answer_updates(
+                current_step="describe_need",
+                answer=source_prompt,
+                answers=answers,
+                personalization=personalization,
+                runtime_config=runtime_config,
+            )
+            answers = _merge_answer_updates(answers, seeded_updates)
 
         try:
             transformed = await self.transformer_client.transform_prompt(
@@ -915,7 +961,10 @@ class GuideMeService:
         )
         requirements = _extract_transformer_requirements(transformed=transformed, score=None)
         answers = _sync_answers_from_requirements(answers, requirements)
-        raw_target_field = _select_target_field_for_refinement(requirements=requirements)
+        raw_target_field = _select_target_field_for_refinement(
+            requirements=requirements,
+            excluded_fields=_get_refined_fields(answers),
+        )
         perfect_score = _is_perfect_score(score)
         passes = transformed.get("result_type") == "transformed" and failing_field is None and perfect_score
         structure_maxed = _all_requirement_scores_maxed(requirements)
@@ -927,6 +976,18 @@ class GuideMeService:
         )
         target_field = specificity_decision["focus_field"]
         if _should_enter_specificity_mode(answers=answers, requirements=requirements) and not passes:
+            if raw_target_field is None and _get_refined_fields(answers):
+                return {
+                    "passes": True,
+                    "failing_field": failing_field,
+                    "target_field": None,
+                    "requirements": requirements,
+                    "score": score,
+                    "guidance_text": "",
+                    "refinement_options": [],
+                    "mode": "specificity",
+                    "next_step": "complete",
+                }
             specificity_refinement = await self._generate_specificity_refinement(
                 answers=answers,
                 requirements=requirements,
@@ -1076,7 +1137,12 @@ def _build_requirement_indicators(answers: dict[str, str]) -> dict[str, GuideMeR
         requirement = requirements.get(key) if isinstance(requirements, dict) else None
         requirement_dict = requirement if isinstance(requirement, dict) else {}
         status = str(requirement_dict.get("status") or "missing")
-        state = _guide_indicator_state(status)
+        state = _guide_indicator_state(
+            status=status,
+            heuristic_score=_safe_int(requirement_dict.get("heuristic_score")),
+            llm_score=_safe_int(requirement_dict.get("llm_score")),
+            max_score=_safe_int(requirement_dict.get("max_score")),
+        )
         indicators[key] = GuideMeRequirementIndicator(
             label=label,
             state=state,
@@ -1513,6 +1579,32 @@ def _required_sections_complete(answers: dict[str, str]) -> bool:
     return all((answers.get(key) or "").strip() for key in ("who", "task", "context", "output"))
 
 
+def _refinable_fields() -> tuple[str, str, str, str]:
+    return ("who", "task", "context", "output")
+
+
+def _get_refined_fields(answers: dict[str, str]) -> list[str]:
+    raw = answers.get("_refined_fields")
+    if not isinstance(raw, list):
+        return []
+    return [str(value).strip() for value in raw if str(value).strip() in _refinable_fields()]
+
+
+def _has_refined_field(answers: dict[str, str], field: str | None) -> bool:
+    return bool(field and field in _get_refined_fields(answers))
+
+
+def _mark_field_refined(answers: dict[str, str], field: str | None) -> dict[str, str]:
+    if field not in _refinable_fields():
+        return dict(answers)
+    updated = dict(answers)
+    refined_fields = _get_refined_fields(updated)
+    if field not in refined_fields:
+        refined_fields.append(field)
+    updated["_refined_fields"] = refined_fields
+    return updated
+
+
 def _should_enter_specificity_mode(*, answers: dict[str, str], requirements: dict[str, dict] | None) -> bool:
     return _required_sections_complete(answers) or _requirements_indicate_completion(requirements)
 
@@ -1797,7 +1889,22 @@ def _first_failing_requirement(transformer_conversation: dict | None) -> str | N
     return None
 
 
-def _guide_indicator_state(status: str) -> str:
+def _guide_indicator_state(
+    status: str,
+    heuristic_score: int | None = None,
+    llm_score: int | None = None,
+    max_score: int | None = None,
+) -> str:
+    scores = [score for score in (heuristic_score, llm_score) if isinstance(score, int)]
+    perfect_target = max_score or 25
+    if scores:
+        if len(scores) >= 2 and all(score >= perfect_target for score in scores):
+            return "met"
+        if len(scores) == 1 and scores[0] >= perfect_target:
+            return "met"
+        if any(score < 15 for score in scores):
+            return "missing"
+        return "partial"
     if status == "present":
         return "met"
     if status == "derived":
@@ -1865,13 +1972,22 @@ def _score_improved(previous_score: dict | None, current_score: dict | None) -> 
     return False
 
 
-def _rank_specificity_focuses(*, answers: dict[str, str], requirements: dict[str, dict] | None, score: dict[str, object] | None) -> list[str]:
+def _rank_specificity_focuses(
+    *,
+    answers: dict[str, str],
+    requirements: dict[str, dict] | None,
+    score: dict[str, object] | None,
+    excluded_fields: list[str] | None = None,
+) -> list[str]:
     normalized = requirements if isinstance(requirements, dict) else {}
     all_scores_maxed = _all_requirement_scores_maxed(normalized)
     ordered = ["who", "task", "context", "output"]
+    excluded = set(excluded_fields or [])
     ranked: list[tuple[tuple[int, int, int, int], str]] = []
     if not all_scores_maxed:
         for index, key in enumerate(ordered):
+            if key in excluded:
+                continue
             requirement = normalized.get(key) if isinstance(normalized.get(key), dict) else {}
             if not isinstance(requirement, dict):
                 continue
@@ -1887,13 +2003,13 @@ def _rank_specificity_focuses(*, answers: dict[str, str], requirements: dict[str
         return [key for _, key in sorted(ranked)]
 
     heuristic_order = []
-    if _context_needs_specificity(str(answers.get("context") or "")):
+    if "context" not in excluded and _context_needs_specificity(str(answers.get("context") or "")):
         heuristic_order.append("context")
-    if _task_needs_specificity(str(answers.get("task") or "")):
+    if "task" not in excluded and _task_needs_specificity(str(answers.get("task") or "")):
         heuristic_order.append("task")
-    if _output_needs_specificity(str(answers.get("output") or "")):
+    if "output" not in excluded and _output_needs_specificity(str(answers.get("output") or "")):
         heuristic_order.append("output")
-    if _who_needs_specificity(str(answers.get("who") or "")):
+    if "who" not in excluded and _who_needs_specificity(str(answers.get("who") or "")):
         heuristic_order.append("who")
     if not heuristic_order and not _is_perfect_score(score):
         heuristic_order.append("overall")
@@ -1907,7 +2023,12 @@ def _resolve_specificity_decision(
     score: dict[str, object] | None,
     default_focus: str | None,
 ) -> dict[str, object]:
-    focus_candidates = _rank_specificity_focuses(answers=answers, requirements=requirements, score=score)
+    focus_candidates = _rank_specificity_focuses(
+        answers=answers,
+        requirements=requirements,
+        score=score,
+        excluded_fields=_get_refined_fields(answers),
+    )
     focus = default_focus or (focus_candidates[0] if focus_candidates else "overall")
     previous_trace = answers.get("_guide_me_trace")
     previous_focus = previous_trace.get("target_field") if isinstance(previous_trace, dict) else None
@@ -1977,6 +2098,8 @@ def _next_guide_me_step(
     target_field: str | None,
     mode: str,
 ) -> str:
+    if mode == "specificity" and not target_field and _get_refined_fields(answers):
+        return "complete"
     if mode == "specificity" or _should_enter_specificity_mode(answers=answers, requirements=requirements):
         return "refine"
     if target_field:
@@ -2051,7 +2174,10 @@ def _select_specificity_focus(
     requirements: dict[str, dict] | None,
     score: dict[str, object] | None,
 ) -> str:
-    target_field = _select_target_field_for_refinement(requirements=requirements)
+    target_field = _select_target_field_for_refinement(
+        requirements=requirements,
+        excluded_fields=_get_refined_fields(answers),
+    )
     if target_field:
         return target_field
     if _task_needs_specificity(str(answers.get("task") or "")):
@@ -2186,16 +2312,22 @@ def _resolve_refinement_selection(answer: str, options: list[str]) -> str:
     return "\n".join(selected) if selected else normalized
 
 
-def _select_target_field_for_refinement(*, requirements: dict[str, dict] | None) -> str | None:
+def _select_target_field_for_refinement(
+    *,
+    requirements: dict[str, dict] | None,
+    excluded_fields: list[str] | None = None,
+) -> str | None:
     normalized = requirements if isinstance(requirements, dict) else {}
     if not normalized:
         return None
+    excluded = {field for field in (excluded_fields or []) if field in _refinable_fields()}
 
     ordered = ("who", "task", "context", "output")
 
     failing = [
         key
         for key in ordered
+        if key not in excluded
         if str((normalized.get(key) or {}).get("status") or "").strip() in {"missing", "derived"}
     ]
     if failing:
@@ -2219,6 +2351,7 @@ def _select_target_field_for_refinement(*, requirements: dict[str, dict] | None)
             _safe_int((normalized.get(key) or {}).get("max_score")),
         )
         for key in ordered
+        if key not in excluded
         if isinstance(normalized.get(key), dict)
     ]
     incomplete = [
@@ -2629,20 +2762,20 @@ def _overall_refinement_options(answers: dict[str, str]) -> list[str]:
 def _apply_refinement_updates(answers: dict[str, str], refinement_text: str) -> dict[str, str]:
     updated = dict(answers)
     labeled_updates = _extract_labeled_answers(refinement_text)
-    consumed_keys = set()
+    consumed_updates: dict[str, str] = {}
     for key in ("who", "task", "context", "output", "instructions"):
         value = (labeled_updates.get(key) or "").strip()
         if value:
-            updated[key] = value
-            consumed_keys.add(key)
+            consumed_updates[key] = value
 
-    if consumed_keys:
+    if consumed_updates:
+        updated = _merge_answer_updates(updated, consumed_updates)
         updated["refinements"] = ""
         return updated
 
     target_field = str(updated.get("_target_field") or "").strip()
     if target_field in {"who", "task", "context", "output"}:
-        updated[target_field] = refinement_text.strip()
+        updated = _merge_answer_updates(updated, {target_field: refinement_text.strip()})
         updated["refinements"] = ""
     elif refinement_text.strip():
         updated["instructions"] = _merge_sections(updated.get("instructions", ""), refinement_text.strip())

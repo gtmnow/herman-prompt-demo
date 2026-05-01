@@ -70,6 +70,10 @@ class GuideMeRespondRequest(BaseModel):
     answer: str = Field(min_length=1)
 
 
+class GuideMeDraftUpdateRequest(BaseModel):
+    draft_text: str = Field(min_length=1)
+
+
 class GuideMeRequirementIndicator(BaseModel):
     state: Literal["met", "partial", "missing"]
     label: str

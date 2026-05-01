@@ -51,6 +51,7 @@ type GuideMePanelProps = {
   onLaunch: () => void;
   onRestart: () => void;
   onSubmit: () => void;
+  onUpdateDraft: (value: string) => void | Promise<void>;
   onUsePrompt: (mode: GuideMeUsePromptMode) => void;
 };
 
@@ -69,10 +70,13 @@ export function GuideMePanel({
   onLaunch,
   onRestart,
   onSubmit,
+  onUpdateDraft,
   onUsePrompt,
 }: GuideMePanelProps) {
   const [showPromptPreview, setShowPromptPreview] = useState(false);
   const [confirmUseAsIs, setConfirmUseAsIs] = useState(false);
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [draftValue, setDraftValue] = useState("");
 
   const scoreSummary = getGuideMeScoreSummary(session?.decisionTrace);
   const progressState = getGuideMeSubmitProgressState(session, submitProgressPercent);
@@ -81,6 +85,8 @@ export function GuideMePanel({
     if (!open) {
       setShowPromptPreview(false);
       setConfirmUseAsIs(false);
+      setEditingDraft(false);
+      setDraftValue("");
     }
   }, [open]);
 
@@ -88,8 +94,16 @@ export function GuideMePanel({
     if (!session?.finalPrompt) {
       setShowPromptPreview(false);
       setConfirmUseAsIs(false);
+      setEditingDraft(false);
+      setDraftValue("");
     }
   }, [session?.finalPrompt]);
+
+  useEffect(() => {
+    if (session?.finalPrompt && !editingDraft) {
+      setDraftValue(session.finalPrompt);
+    }
+  }, [editingDraft, session?.finalPrompt]);
 
   if (!open) {
     return null;
@@ -183,14 +197,27 @@ export function GuideMePanel({
                       </div>
                     ) : null}
                     {!session.readyToInsert ? (
-                      <button
-                        className="feedback-button"
-                        disabled={busy}
-                        type="button"
-                        onClick={() => setConfirmUseAsIs(true)}
-                      >
-                        Use AS-IS
-                      </button>
+                      <>
+                        <button
+                          className="feedback-button"
+                          disabled={busy}
+                          type="button"
+                          onClick={() => {
+                            setEditingDraft((current) => !current);
+                            setDraftValue(session.finalPrompt ?? "");
+                          }}
+                        >
+                          {editingDraft ? "Cancel Edit" : "Edit Draft"}
+                        </button>
+                        <button
+                          className="feedback-button"
+                          disabled={busy || editingDraft}
+                          type="button"
+                          onClick={() => setConfirmUseAsIs(true)}
+                        >
+                          Use AS-IS
+                        </button>
+                      </>
                     ) : null}
                   </div>
                   <button
@@ -227,7 +254,43 @@ export function GuideMePanel({
                     </div>
                   </div>
                 ) : null}
-                <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
+                {editingDraft ? (
+                  <>
+                    <textarea
+                      className="guide-me-answer-input"
+                      disabled={busy}
+                      rows={10}
+                      value={draftValue}
+                      onChange={(event) => setDraftValue(event.target.value)}
+                    />
+                    <div className="guide-me-confirm-actions">
+                      <button
+                        className="send-button"
+                        disabled={busy || !draftValue.trim()}
+                        type="button"
+                        onClick={async () => {
+                          await onUpdateDraft(draftValue);
+                          setEditingDraft(false);
+                        }}
+                      >
+                        Save Draft
+                      </button>
+                      <button
+                        className="feedback-button"
+                        disabled={busy}
+                        type="button"
+                        onClick={() => {
+                          setEditingDraft(false);
+                          setDraftValue(session.finalPrompt ?? "");
+                        }}
+                      >
+                        Revert
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <pre className="guide-me-final-prompt">{session.finalPrompt}</pre>
+                )}
               </div>
             ) : null}
 

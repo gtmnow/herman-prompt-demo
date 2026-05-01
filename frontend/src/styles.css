@@ -81,7 +81,7 @@ input {
 
 .chat-main {
   display: grid;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: auto auto 1fr auto auto auto;
   gap: 20px;
   min-height: 0;
   overflow: hidden;
@@ -1274,55 +1274,12 @@ input {
 }
 
 .blocking-state,
-.status-banner,
 .error-banner {
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 18px;
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   box-shadow: var(--shadow);
-}
-
-.status-banner {
-  color: var(--text-muted);
-}
-
-.active-conversation-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  box-shadow: var(--shadow);
-}
-
-.active-conversation-copy {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.active-conversation-title {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 1.05rem;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.active-conversation-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .error-banner {
@@ -1530,14 +1487,6 @@ input {
     flex-direction: column;
   }
 
-  .active-conversation-panel {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .active-conversation-actions {
-    justify-content: stretch;
-  }
 }
 
 @media (max-width: 860px) {

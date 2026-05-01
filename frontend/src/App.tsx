@@ -142,7 +142,6 @@ export function App() {
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conversationNotice, setConversationNotice] = useState<string | null>(null);
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
   const [unfiledConversations, setUnfiledConversations] = useState<ConversationSummary[]>([]);
   const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>([]);
@@ -181,13 +180,6 @@ export function App() {
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
   const emptyTranscriptMessage = buildWelcomeMessage(session, enforcementLevel, summaryType, transformerProfile);
-  const activeConversationKey = `conv_${conversationId}`;
-  const activeSavedConversation = findConversationSummaryById(
-    activeConversationKey,
-    unfiledConversations,
-    conversationFolders,
-  );
-
   useEffect(() => {
     let cancelled = false;
 
@@ -366,7 +358,6 @@ export function App() {
       setGuideMeOpen(true);
       setGuideMeAnswer("");
       setGuideMeError(null);
-      setConversationNotice("Guide Me is ready.");
     } catch (guideError) {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to start Guide Me.");
       setGuideMeOpen(true);
@@ -470,9 +461,6 @@ export function App() {
       const payload = (await response.json()) as { session?: GuideMeApiSession | null };
       setGuideMeSession(payload.session ? mapGuideMeSession(payload.session) : null);
       setGuideMeAnswer("");
-      if (payload.session?.ready_to_insert) {
-        setConversationNotice("Guide Me built a formatted prompt. Review it and insert it when ready.");
-      }
     } catch (guideError) {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to continue Guide Me.");
     } finally {
@@ -513,12 +501,45 @@ export function App() {
       setGuideMeAnswer("");
       setGuideMeError(null);
       setGuideMeOpen(false);
-      setConversationNotice("Guide Me cancelled.");
     } catch (guideError) {
       setGuideMeError(guideError instanceof Error ? guideError.message : "Unable to cancel Guide Me.");
     } finally {
       setGuideMeBusy(false);
       setGuideMePendingAction(null);
+    }
+  }
+
+  async function updateGuideMeDraft(nextDraft: string) {
+    if (!session || !guideMeSession || guideMeBusy) {
+      return;
+    }
+
+    setGuideMeBusy(true);
+    setGuideMeError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/guide-me/${guideMeSession.conversationId}/draft`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          draft_text: nextDraft.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to update Guide Me draft.");
+        throw new Error(errorMessage);
+      }
+
+      const payload = (await response.json()) as { session?: GuideMeApiSession | null };
+      setGuideMeSession(payload.session ? mapGuideMeSession(payload.session) : null);
+    } catch (draftError) {
+      setGuideMeError(draftError instanceof Error ? draftError.message : "Unable to update Guide Me draft.");
+      throw draftError;
+    } finally {
+      setGuideMeBusy(false);
     }
   }
 
@@ -530,11 +551,6 @@ export function App() {
     setDraft(guideMeSession.finalPrompt);
     setGuideMeOpen(false);
     setGuideMeError(null);
-    setConversationNotice(
-      mode === "as-is"
-        ? "Guide Me moved the current draft into the composer."
-        : "Guide Me moved the formatted prompt into the composer.",
-    );
   }
 
   async function handleSubmit() {
@@ -635,13 +651,6 @@ export function App() {
         profileVersion: payload.metadata.transformer.profile_version ?? null,
         personaSource: payload.metadata.transformer.persona_source ?? null,
       });
-      if (payload.metadata.transformer.result_type === "coaching") {
-        setConversationNotice(null);
-      } else if (payload.metadata.transformer.result_type === "blocked") {
-        setConversationNotice(null);
-      } else {
-        setConversationNotice(null);
-      }
       setDraft("");
       setAttachments([]);
       setUploadError(null);
@@ -802,11 +811,6 @@ export function App() {
       profileVersion: session?.profile_version ?? current.profileVersion ?? null,
       personaSource: session?.profile_version ? "bootstrap" : null,
     }));
-    setConversationNotice(
-      nextTransformEnabled
-        ? "Conversation reset. Prompt Transformer is now on."
-        : "Conversation reset. Prompt Transformer is now off.",
-    );
   }
 
   function applySummaryType(nextSummaryType: number | null) {
@@ -829,11 +833,6 @@ export function App() {
       profileVersion: nextSummaryType === null ? session?.profile_version ?? current.profileVersion ?? null : null,
       personaSource: nextSummaryType === null && session?.profile_version ? "bootstrap" : null,
     }));
-    setConversationNotice(
-      nextSummaryType === null
-        ? "Conversation reset. Using the selected user's default profile."
-        : `Conversation reset. Using demo profile type ${nextSummaryType}.`,
-    );
   }
 
   function applyEnforcementLevel(nextEnforcementLevel: EnforcementLevel) {
@@ -855,7 +854,6 @@ export function App() {
       profileVersion: session?.profile_version ?? current.profileVersion ?? null,
       personaSource: session?.profile_version ? "bootstrap" : null,
     }));
-    setConversationNotice(`Conversation reset. Using ${nextEnforcementLevel} enforcement.`);
   }
 
   async function loadConversationSummaries() {
@@ -974,7 +972,6 @@ export function App() {
           feedbackStatus: "idle",
         })),
       );
-      setConversationNotice("Loaded saved conversation.");
       setDraft("");
       setAttachments([]);
       setUploadError(null);
@@ -1018,7 +1015,6 @@ export function App() {
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-    setConversationNotice("Started a new conversation.");
   }
 
   async function deleteConversation(targetConversationId: string) {
@@ -1045,7 +1041,6 @@ export function App() {
       if (isMobile) {
         setSidebarCollapsed(true);
       }
-      setConversationNotice("Conversation deleted.");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversation.");
     } finally {
@@ -1098,7 +1093,6 @@ export function App() {
       if (isMobile) {
         setSidebarCollapsed(true);
       }
-      setConversationNotice("All unfiled saved conversations were deleted. Foldered conversations were preserved.");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversations.");
     } finally {
@@ -1138,7 +1132,6 @@ export function App() {
       }
 
       await loadConversationSummaries();
-      setConversationNotice(renameTarget.kind === "conversation" ? "Conversation renamed." : "Folder renamed.");
       setRenameTarget(null);
       setRenameValue("");
     } catch (renameError) {
@@ -1192,7 +1185,6 @@ export function App() {
       }
 
       await loadConversationSummaries();
-      setConversationNotice(folderId ? "Conversation moved into folder." : "Conversation returned to unfiled.");
       setMoveConversationTarget(null);
       setMoveTargetFolderId("");
       setNewFolderName("");
@@ -1225,11 +1217,6 @@ export function App() {
       }
 
       await loadConversationSummaries();
-      setConversationNotice(
-        mode === "unfile"
-          ? "Folder deleted and conversations returned to unfiled."
-          : "Folder and its conversations deleted.",
-      );
       setFolderDeleteTarget(null);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete folder.");
@@ -1397,39 +1384,6 @@ export function App() {
           unfiledConversations={unfiledConversations}
         />
         <div className="chat-main">
-          {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
-          {activeSavedConversation ? (
-            <div className="active-conversation-panel">
-              <div className="active-conversation-copy">
-                <div className="message-label">Saved Conversation</div>
-                <button
-                  className="active-conversation-title"
-                  disabled={conversationActionBusy}
-                  type="button"
-                  onClick={() => {
-                    setRenameTarget({ kind: "conversation", item: activeSavedConversation });
-                    setRenameValue(activeSavedConversation.title);
-                  }}
-                >
-                  {activeSavedConversation.title}
-                </button>
-              </div>
-              <div className="active-conversation-actions">
-                <button
-                  className="feedback-button"
-                  disabled={conversationActionBusy}
-                  type="button"
-                  onClick={() => {
-                    setMoveConversationTarget(activeSavedConversation);
-                    setMoveTargetFolderId(activeSavedConversation.folderId ?? "");
-                    setNewFolderName("");
-                  }}
-                >
-                  {activeSavedConversation.folderId ? "Move to folder" : "File in folder"}
-                </button>
-              </div>
-            </div>
-          ) : null}
           <Transcript
             turns={turns}
             showDetails={showDetails}
@@ -1545,6 +1499,7 @@ export function App() {
         onLaunch={startGuideMe}
         onRestart={restartGuideMe}
         onSubmit={submitGuideMeAnswer}
+        onUpdateDraft={updateGuideMeDraft}
         onUsePrompt={useGuideMePrompt}
       />
     </main>
@@ -1725,26 +1680,6 @@ function mapConversationSummary(conversation: {
     createdAt: conversation.created_at,
     updatedAt: conversation.updated_at,
   };
-}
-
-function findConversationSummaryById(
-  conversationId: string,
-  unfiledConversations: ConversationSummary[],
-  folders: ConversationFolder[],
-): ConversationSummary | null {
-  const unfiledMatch = unfiledConversations.find((conversation) => conversation.id === conversationId);
-  if (unfiledMatch) {
-    return unfiledMatch;
-  }
-
-  for (const folder of folders) {
-    const folderMatch = folder.conversations.find((conversation) => conversation.id === conversationId);
-    if (folderMatch) {
-      return folderMatch;
-    }
-  }
-
-  return null;
 }
 
 function deriveCoachingRequirements(

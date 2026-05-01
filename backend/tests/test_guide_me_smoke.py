@@ -20,7 +20,8 @@ from app.core.auth import AuthenticatedUser  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.schemas.chat import GuideMeRespondRequest, GuideMeStartRequest  # noqa: E402
 from app.services import guide_me_service as guide_module  # noqa: E402
-from app.services.guide_me_service import GuideMeService  # noqa: E402
+from app.services.guide_me_service import GuideMeService, _guide_indicator_state  # noqa: E402
+from app.services.runtime_llm import RuntimeLlmConfig  # noqa: E402
 
 
 class FakeConversationService:
@@ -32,7 +33,13 @@ class FakeConversationService:
 
 
 class FakeLlmClient:
-    async def generate_text(self, *, prompt: str, conversation_history: list[Any] | None = None) -> str:
+    async def generate_text(
+        self,
+        *,
+        prompt: str,
+        conversation_history: list[Any] | None = None,
+        runtime_config: Any | None = None,
+    ) -> str:
         if "Return strict JSON with exactly these keys: describe_need, who, why, how, what." in prompt:
             if "ram simms" in prompt.lower() or "supplier" in prompt.lower():
                 return json.dumps(
@@ -126,6 +133,7 @@ class FakeTransformerClient:
     async def transform_prompt(
         self,
         *,
+        runtime_config: Any | None = None,
         session_id: str,
         conversation_id: str,
         user_id_hash: str,
@@ -235,6 +243,18 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.service.transformer_client = FakeTransformerClient()
         self.service.llm_client = FakeLlmClient()
         self.service.conversation_service = FakeConversationService()
+        self.service.runtime_llm_resolver.resolve_for_user = lambda user: RuntimeLlmConfig(
+            tenant_id="demo",
+            user_id_hash=user.user_id_hash,
+            provider="openai",
+            model="gpt-test",
+            endpoint_url=None,
+            api_key="test-key",
+            transformation_enabled=True,
+            scoring_enabled=True,
+            credential_status="valid",
+            source_kind="test",
+        )
         self.user = AuthenticatedUser(
             external_user_id="test-user",
             user_id_hash="user_1",
@@ -331,7 +351,8 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         assert updated is not None
         self.assertEqual(updated.current_step, "complete")
         self.assertTrue(updated.ready_to_insert)
-        self.assertIn(option, updated.final_prompt or "")
+        self.assertIn("renewal ownership", updated.final_prompt or "")
+        self.assertIn("stakeholder management", updated.final_prompt or "")
 
     async def test_start_session_uses_ai_generated_contextual_example_for_who_step(self) -> None:
         response = await self.service.start_session(
@@ -386,6 +407,74 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
         assert updated is not None
         self.assertIn("renewal ownership", updated.final_prompt or "")
         self.assertIn("stakeholder management", updated.final_prompt or "")
+
+    async def test_refinement_merges_with_existing_section_instead_of_replacing_it(self) -> None:
+        source_prompt = (
+            "Who: You are an experienced recruiting strategist helping me improve hiring quality for a Customer Success Manager position role.\n\n"
+            "Task: Reduce the number of unqualified candidates applying for the Customer Success Manager position\n\n"
+            "Context: Our current job postings for the Customer Success Manager position are attracting a high volume of applicants who do not meet the minimum requirements.\n\n"
+            "Output: Format your response with clear section headers and three numbered actions."
+        )
+        start = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_refine_merge",
+                source_prompt=source_prompt,
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+        session = start.session
+        assert session is not None
+
+        refined = await self.service.respond(
+            GuideMeRespondRequest(
+                conversation_id="conv_refine_merge",
+                answer="Context: Include renewal ownership and stakeholder management requirements.",
+            ),
+            user=self.user,
+        )
+
+        updated = refined.session
+        assert updated is not None
+        self.assertIn("attracting a high volume of applicants", updated.final_prompt or "")
+        self.assertIn("renewal ownership", updated.final_prompt or "")
+        self.assertIn("stakeholder management", updated.final_prompt or "")
+
+    async def test_update_draft_persists_manual_prompt_edits(self) -> None:
+        start = await self.service.start_session(
+            GuideMeStartRequest(
+                conversation_id="conv_edit_draft",
+                source_prompt=(
+                    "Who: You are a clear hiring advisor.\n\n"
+                    "Task: Improve candidate quality.\n\n"
+                    "Context: We are getting too many weak applicants.\n\n"
+                    "Output: Respond with clear sections."
+                ),
+                enforcement_level="full",
+            ),
+            user=self.user,
+        )
+        assert start.session is not None
+
+        updated = await self.service.update_draft(
+            conversation_id="conv_edit_draft",
+            draft_text=(
+                "Who: You are a clear hiring advisor.\n\n"
+                "Task: Improve candidate quality by 30% this quarter.\n\n"
+                "Context: We are getting too many weak applicants for customer success roles.\n\n"
+                "Output: Respond with a summary, five bullets, and next steps."
+            ),
+            user=self.user,
+        )
+
+        assert updated.session is not None
+        self.assertIn("30% this quarter", updated.session.final_prompt or "")
+        self.assertIn("five bullets", updated.session.final_prompt or "")
+
+    def test_indicator_thresholds_use_red_yellow_green_boundaries(self) -> None:
+        self.assertEqual(_guide_indicator_state("present", heuristic_score=25, llm_score=25, max_score=25), "met")
+        self.assertEqual(_guide_indicator_state("present", heuristic_score=14, llm_score=25, max_score=25), "missing")
+        self.assertEqual(_guide_indicator_state("present", heuristic_score=15, llm_score=24, max_score=25), "partial")
 
 
 if __name__ == "__main__":
