@@ -9,16 +9,30 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
+class ConversationFolder(Base):
+    __tablename__ = "conversation_folders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id_hash: Mapped[str] = mapped_column(String(255), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
+
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="folder")
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     user_id_hash: Mapped[str] = mapped_column(String(255), index=True)
     title: Mapped[str] = mapped_column(String(255))
+    folder_id: Mapped[str | None] = mapped_column(ForeignKey("conversation_folders.id"), nullable=True, index=True)
     transformer_conversation: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
 
+    folder: Mapped["ConversationFolder | None"] = relationship(back_populates="conversations")
     turns: Mapped[list["ConversationTurn"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",

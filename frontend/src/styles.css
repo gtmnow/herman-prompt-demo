@@ -155,6 +155,49 @@ input {
   overflow: auto;
 }
 
+.conversation-section,
+.conversation-folder-conversations {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conversation-folder-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.conversation-folder-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.conversation-folder-group {
+  display: grid;
+  gap: 10px;
+}
+
+.conversation-folder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.conversation-folder-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
 .conversation-sidebar-footer {
   margin-top: auto;
   padding-top: 10px;
@@ -214,6 +257,15 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.conversation-item-title-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .conversation-item-date {
@@ -927,6 +979,10 @@ input {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
+.danger-button:hover {
+  border-color: color-mix(in srgb, var(--danger) 75%, var(--border));
+}
+
 .feedback-note {
   margin-top: 12px;
   color: var(--text-muted);
@@ -1257,6 +1313,37 @@ input {
   margin-top: 18px;
 }
 
+.conversation-modal {
+  width: min(560px, 100%);
+}
+
+.conversation-text-input {
+  min-height: auto;
+}
+
+.conversation-select {
+  width: 100%;
+}
+
+.conversation-modal-copy {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.conversation-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.danger-button {
+  color: #fff;
+  background: color-mix(in srgb, var(--danger) 82%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+}
+
 @keyframes processing-pulse {
   0%,
   80%,
@@ -1330,7 +1417,8 @@ input {
   }
 
   .feedback-modal-header,
-  .feedback-modal-actions {
+  .feedback-modal-actions,
+  .conversation-modal-actions {
     flex-direction: column;
   }
 }

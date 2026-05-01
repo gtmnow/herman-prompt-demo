@@ -22,10 +22,11 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def initialize_database() -> None:
-    from app.models.conversation import Conversation, ConversationTurn, GuideMeSession
+    from app.models.conversation import Conversation, ConversationFolder, ConversationTurn, GuideMeSession
     from app.models.feedback import Feedback
 
     _ = Conversation
+    _ = ConversationFolder
     _ = ConversationTurn
     _ = GuideMeSession
     _ = Feedback
@@ -37,6 +38,26 @@ def _ensure_conversation_columns() -> None:
     inspector = inspect(engine)
     conversation_columns = {column["name"] for column in inspector.get_columns("conversations")}
     with engine.begin() as connection:
+        tables = set(inspector.get_table_names())
+        if "conversation_folders" not in tables:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE conversation_folders (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_id_hash VARCHAR(255),
+                        name VARCHAR(255),
+                        created_at DATETIME,
+                        updated_at DATETIME
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_conversation_folders_user_id_hash ON conversation_folders (user_id_hash)"))
+
+        if "folder_id" not in conversation_columns:
+            connection.execute(text("ALTER TABLE conversations ADD COLUMN folder_id VARCHAR(36)"))
+            connection.execute(text("CREATE INDEX ix_conversations_folder_id ON conversations (folder_id)"))
         if "transformer_conversation" not in conversation_columns:
             connection.execute(text("ALTER TABLE conversations ADD COLUMN transformer_conversation JSON"))
 

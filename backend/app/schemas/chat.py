@@ -217,15 +217,29 @@ class ChatSendResponse(BaseModel):
     metadata: ChatResponseMetadata
 
 
-class ConversationSummary(BaseModel):
+class ConversationFolderSummary(BaseModel):
     id: str
-    title: str
+    name: str
     created_at: str
     updated_at: str
 
 
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    folder_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class ConversationFolderPayload(ConversationFolderSummary):
+    conversations: list[ConversationSummary] = Field(default_factory=list)
+
+
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationSummary] = Field(default_factory=list)
+    unfiled_conversations: list[ConversationSummary] = Field(default_factory=list)
+    folders: list[ConversationFolderPayload] = Field(default_factory=list)
 
 
 class ConversationTurnPayload(BaseModel):
@@ -244,6 +258,7 @@ class ConversationTurnPayload(BaseModel):
 class ConversationDetailResponse(BaseModel):
     id: str
     title: str
+    folder_id: str | None = None
     user_id_hash: str
     created_at: str
     updated_at: str
@@ -254,6 +269,25 @@ class ConversationDetailResponse(BaseModel):
 
 class ConversationDeleteResponse(BaseModel):
     status: Literal["deleted"]
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    folder_id: str | None = None
+
+
+class ConversationFolderCreateRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class ConversationFolderUpdateRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class ConversationFolderDeleteResponse(BaseModel):
+    status: Literal["deleted"]
+    deleted_conversation_count: int = 0
+    unfiled_conversation_count: int = 0
 
 
 class ConversationDeleteAllResponse(BaseModel):

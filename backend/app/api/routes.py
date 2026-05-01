@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 
 from app.api.deps import build_bootstrap_response, get_current_user
 from app.core.auth import AuthenticatedUser
@@ -9,7 +9,13 @@ from app.schemas.chat import (
     ConversationDetailResponse,
     ConversationDeleteAllResponse,
     ConversationDeleteResponse,
+    ConversationFolderCreateRequest,
+    ConversationFolderDeleteResponse,
+    ConversationFolderSummary,
+    ConversationFolderUpdateRequest,
     ConversationListResponse,
+    ConversationSummary,
+    ConversationUpdateRequest,
     FeedbackRequest,
     FeedbackResponse,
     GuideMeCancelResponse,
@@ -120,6 +126,24 @@ async def get_conversation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+async def update_conversation(
+    conversation_id: str,
+    payload: ConversationUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationSummary:
+    try:
+        return await chat_service.update_conversation(
+            conversation_id=conversation_id,
+            user_id_hash=user.user_id_hash,
+            title=payload.title,
+            folder_id=payload.folder_id,
+            update_folder="folder_id" in payload.model_fields_set,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.delete("/conversations/{conversation_id}", response_model=ConversationDeleteResponse)
 async def delete_conversation(
     conversation_id: str,
@@ -136,6 +160,41 @@ async def delete_all_conversations(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> ConversationDeleteAllResponse:
     return await chat_service.delete_all_conversations(user_id_hash=user.user_id_hash)
+
+
+@router.post("/conversation-folders", response_model=ConversationFolderSummary, status_code=status.HTTP_201_CREATED)
+async def create_conversation_folder(
+    payload: ConversationFolderCreateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationFolderSummary:
+    try:
+        return await chat_service.create_folder(user_id_hash=user.user_id_hash, name=payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.patch("/conversation-folders/{folder_id}", response_model=ConversationFolderSummary)
+async def rename_conversation_folder(
+    folder_id: str,
+    payload: ConversationFolderUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationFolderSummary:
+    try:
+        return await chat_service.rename_folder(folder_id=folder_id, user_id_hash=user.user_id_hash, name=payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.delete("/conversation-folders/{folder_id}", response_model=ConversationFolderDeleteResponse)
+async def delete_conversation_folder(
+    folder_id: str,
+    mode: str = Query(..., pattern="^(unfile|delete_contents)$"),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ConversationFolderDeleteResponse:
+    try:
+        return await chat_service.delete_folder(folder_id=folder_id, user_id_hash=user.user_id_hash, mode=mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/conversations/{conversation_id}/export")

@@ -7,7 +7,10 @@ from app.schemas.chat import (
     ConversationDetailResponse,
     ConversationDeleteAllResponse,
     ConversationDeleteResponse,
+    ConversationFolderDeleteResponse,
+    ConversationFolderSummary,
     ConversationListResponse,
+    ConversationSummary,
     FeedbackRequest,
     FeedbackResponse,
     LlmMetadata,
@@ -250,6 +253,38 @@ class ChatService:
             conversation_id=conversation_id,
             user_id_hash=user_id_hash,
         )
+
+    async def update_conversation(
+        self,
+        *,
+        conversation_id: str,
+        user_id_hash: str,
+        title: str | None = None,
+        folder_id: str | None = None,
+        update_folder: bool = False,
+    ) -> ConversationSummary:
+        return self.conversation_service.update_conversation(
+            conversation_id=conversation_id,
+            user_id_hash=user_id_hash,
+            title=title,
+            folder_id=folder_id,
+            update_folder=update_folder,
+        )
+
+    async def create_folder(self, *, user_id_hash: str, name: str) -> ConversationFolderSummary:
+        return self.conversation_service.create_folder(user_id_hash=user_id_hash, name=name)
+
+    async def rename_folder(self, *, folder_id: str, user_id_hash: str, name: str) -> ConversationFolderSummary:
+        return self.conversation_service.rename_folder(folder_id=folder_id, user_id_hash=user_id_hash, name=name)
+
+    async def delete_folder(
+        self,
+        *,
+        folder_id: str,
+        user_id_hash: str,
+        mode: str,
+    ) -> ConversationFolderDeleteResponse:
+        return self.conversation_service.delete_folder(folder_id=folder_id, user_id_hash=user_id_hash, mode=mode)
 
 
 def _build_coaching_requirements(raw_user_text: str, transformer_conversation: dict | None) -> dict[str, dict[str, str]] | None:

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Composer, type UploadedAttachment } from "./components/Composer";
-import { ConversationSidebar, type ConversationSummary } from "./components/ConversationSidebar";
+import {
+  ConversationSidebar,
+  type ConversationFolder,
+  type ConversationSummary,
+} from "./components/ConversationSidebar";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { GuideMePanel, type GuideMeSession } from "./components/GuideMePanel";
 import { Header } from "./components/Header";
@@ -110,6 +114,10 @@ type TransformerProfileMetadata = {
   personaSource: string | null;
 };
 
+type RenameTarget =
+  | { kind: "conversation"; item: ConversationSummary }
+  | { kind: "folder"; item: ConversationFolder };
+
 function createConversationId() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -136,11 +144,18 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [conversationNotice, setConversationNotice] = useState<string | null>(null);
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [unfiledConversations, setUnfiledConversations] = useState<ConversationSummary[]>([]);
+  const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia("(max-width: 860px)").matches);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationActionBusy, setConversationActionBusy] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [moveConversationTarget, setMoveConversationTarget] = useState<ConversationSummary | null>(null);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>("");
+  const [newFolderName, setNewFolderName] = useState("");
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<ConversationFolder | null>(null);
   const [feedbackDraft, setFeedbackDraft] = useState<{
     turnId: string;
     feedbackType: "up" | "down";
@@ -855,19 +870,41 @@ export function App() {
       }
 
       const payload = (await response.json()) as {
-        conversations: { id: string; title: string; created_at: string; updated_at: string }[];
+        unfiled_conversations: {
+          id: string;
+          title: string;
+          folder_id?: string | null;
+          created_at: string;
+          updated_at: string;
+        }[];
+        folders: {
+          id: string;
+          name: string;
+          created_at: string;
+          updated_at: string;
+          conversations: {
+            id: string;
+            title: string;
+            folder_id?: string | null;
+            created_at: string;
+            updated_at: string;
+          }[];
+        }[];
       };
 
-      setConversations(
-        payload.conversations.map((conversation) => ({
-          id: conversation.id,
-          title: conversation.title,
-          createdAt: conversation.created_at,
-          updatedAt: conversation.updated_at,
+      setUnfiledConversations(payload.unfiled_conversations.map(mapConversationSummary));
+      setConversationFolders(
+        payload.folders.map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          createdAt: folder.created_at,
+          updatedAt: folder.updated_at,
+          conversations: folder.conversations.map(mapConversationSummary),
         })),
       );
     } catch (loadError) {
-      setConversations([]);
+      setUnfiledConversations([]);
+      setConversationFolders([]);
       setConversationListError(loadError instanceof Error ? loadError.message : "Unable to load conversations.");
     } finally {
       setLoadingConversations(false);
@@ -894,6 +931,8 @@ export function App() {
 
       const payload = (await response.json()) as {
         id: string;
+        title: string;
+        folder_id?: string | null;
         transformer_conversation?: TransformerConversation | null;
         transformer_scoring?: TransformerScoring | null;
         turns: {
@@ -964,6 +1003,12 @@ export function App() {
     setGuideMeOpen(false);
     setGuideMeAnswer("");
     setGuideMeError(null);
+    setRenameTarget(null);
+    setRenameValue("");
+    setMoveConversationTarget(null);
+    setMoveTargetFolderId("");
+    setNewFolderName("");
+    setFolderDeleteTarget(null);
     if (isMobile) {
       setSidebarCollapsed(true);
     }
@@ -1003,12 +1048,12 @@ export function App() {
   }
 
   async function deleteAllConversations() {
-    if (!session || conversations.length === 0) {
+    if (!session || unfiledConversations.length === 0) {
       return;
     }
     if (
       !window.confirm(
-        "Delete all saved conversations from HermanPrompt? Prompt score history will remain in the scoring database.",
+        "Delete all unfiled saved conversations from HermanPrompt? Conversations inside folders will be preserved.",
       )
     ) {
       return;
@@ -1026,7 +1071,7 @@ export function App() {
         throw new Error(errorMessage);
       }
 
-      setConversations([]);
+      setUnfiledConversations([]);
       setConversationId(createConversationId());
       setTransformerConversation(null);
       setTransformerScoring(null);
@@ -1047,9 +1092,141 @@ export function App() {
       if (isMobile) {
         setSidebarCollapsed(true);
       }
-      setConversationNotice("All saved conversations were deleted. Prompt score history was preserved.");
+      setConversationNotice("All unfiled saved conversations were deleted. Foldered conversations were preserved.");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete conversations.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
+  async function saveRename() {
+    if (!session || !renameTarget || !renameValue.trim()) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    setError(null);
+    try {
+      const endpoint =
+        renameTarget.kind === "conversation"
+          ? `${apiBaseUrl}/api/conversations/${renameTarget.item.id}`
+          : `${apiBaseUrl}/api/conversation-folders/${renameTarget.item.id}`;
+      const body =
+        renameTarget.kind === "conversation"
+          ? { title: renameValue.trim() }
+          : { name: renameValue.trim() };
+
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to save name.");
+        throw new Error(errorMessage);
+      }
+
+      await loadConversationSummaries();
+      setConversationNotice(renameTarget.kind === "conversation" ? "Conversation renamed." : "Folder renamed.");
+      setRenameTarget(null);
+      setRenameValue("");
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Unable to save name.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
+  async function moveConversationToFolder() {
+    if (!session || !moveConversationTarget) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    setError(null);
+    try {
+      let folderId: string | null = moveTargetFolderId || null;
+      const trimmedFolderName = newFolderName.trim();
+      if (trimmedFolderName) {
+        const createResponse = await fetch(`${apiBaseUrl}/api/conversation-folders`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({ name: trimmedFolderName }),
+        });
+
+        if (!createResponse.ok) {
+          const errorMessage = await extractErrorMessage(createResponse, "Unable to create folder.");
+          throw new Error(errorMessage);
+        }
+
+        const createdFolder = (await createResponse.json()) as { id: string };
+        folderId = createdFolder.id;
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${moveConversationTarget.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ folder_id: folderId }),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to file conversation.");
+        throw new Error(errorMessage);
+      }
+
+      await loadConversationSummaries();
+      setConversationNotice(folderId ? "Conversation moved into folder." : "Conversation returned to unfiled.");
+      setMoveConversationTarget(null);
+      setMoveTargetFolderId("");
+      setNewFolderName("");
+    } catch (moveError) {
+      setError(moveError instanceof Error ? moveError.message : "Unable to file conversation.");
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }
+
+  async function deleteFolder(mode: "unfile" | "delete_contents") {
+    if (!session || !folderDeleteTarget) {
+      return;
+    }
+
+    setConversationActionBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversation-folders/${folderDeleteTarget.id}?mode=${mode}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        },
+      );
+
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to delete folder.");
+        throw new Error(errorMessage);
+      }
+
+      await loadConversationSummaries();
+      setConversationNotice(
+        mode === "unfile"
+          ? "Folder deleted and conversations returned to unfiled."
+          : "Folder and its conversations deleted.",
+      );
+      setFolderDeleteTarget(null);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete folder.");
     } finally {
       setConversationActionBusy(false);
     }
@@ -1188,15 +1365,30 @@ export function App() {
           activeConversationId={`conv_${conversationId}`}
           collapsed={sidebarCollapsed}
           isMobile={isMobile}
-          conversations={conversations}
+          folders={conversationFolders}
           error={conversationListError}
           loading={loadingConversations}
           onDeleteAllConversations={deleteAllConversations}
           onDeleteConversation={deleteConversation}
           onExportConversation={exportConversation}
+          onOpenConversationRename={(conversation) => {
+            setRenameTarget({ kind: "conversation", item: conversation });
+            setRenameValue(conversation.title);
+          }}
+          onOpenDeleteFolder={(folder) => setFolderDeleteTarget(folder)}
+          onOpenFolderRename={(folder) => {
+            setRenameTarget({ kind: "folder", item: folder });
+            setRenameValue(folder.name);
+          }}
+          onOpenMoveConversation={(conversation) => {
+            setMoveConversationTarget(conversation);
+            setMoveTargetFolderId(conversation.folderId ?? "");
+            setNewFolderName("");
+          }}
           onSelectConversation={loadConversation}
           onStartConversation={startNewConversation}
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+          unfiledConversations={unfiledConversations}
         />
         <div className="chat-main">
           {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
@@ -1259,6 +1451,47 @@ export function App() {
           onToggleDimension={toggleFeedbackDimension}
         />
       ) : null}
+      {renameTarget ? (
+        <RenameDialog
+          busy={conversationActionBusy}
+          label={renameTarget.kind === "conversation" ? "Conversation name" : "Folder name"}
+          title={renameTarget.kind === "conversation" ? "Rename conversation" : "Rename folder"}
+          value={renameValue}
+          onChange={setRenameValue}
+          onClose={() => {
+            setRenameTarget(null);
+            setRenameValue("");
+          }}
+          onSave={saveRename}
+        />
+      ) : null}
+      {moveConversationTarget ? (
+        <MoveConversationDialog
+          busy={conversationActionBusy}
+          folders={conversationFolders}
+          newFolderName={newFolderName}
+          selectedFolderId={moveTargetFolderId}
+          title={moveConversationTarget.title}
+          onChangeNewFolderName={setNewFolderName}
+          onChangeSelectedFolderId={setMoveTargetFolderId}
+          onClose={() => {
+            setMoveConversationTarget(null);
+            setMoveTargetFolderId("");
+            setNewFolderName("");
+          }}
+          onSave={moveConversationToFolder}
+        />
+      ) : null}
+      {folderDeleteTarget ? (
+        <DeleteFolderDialog
+          busy={conversationActionBusy}
+          conversationCount={folderDeleteTarget.conversations.length}
+          folderName={folderDeleteTarget.name}
+          onClose={() => setFolderDeleteTarget(null)}
+          onDeleteFolderAndContents={() => void deleteFolder("delete_contents")}
+          onDeleteFolderOnly={() => void deleteFolder("unfile")}
+        />
+      ) : null}
       <GuideMePanel
         answer={guideMeAnswer}
         busy={guideMeBusy}
@@ -1278,6 +1511,182 @@ export function App() {
       />
     </main>
   );
+}
+
+type RenameDialogProps = {
+  busy: boolean;
+  label: string;
+  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+};
+
+function RenameDialog({ busy, label, title, value, onChange, onClose, onSave }: RenameDialogProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-modal="true" className="feedback-modal conversation-modal" role="dialog">
+        <div className="feedback-modal-header">
+          <div>
+            <div className="message-label">Rename</div>
+            <h2 className="feedback-modal-title">{title}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <label className="feedback-comment-field">
+          <span className="message-label">{label}</span>
+          <input className="feedback-comment-input conversation-text-input" value={value} onChange={(event) => onChange(event.target.value)} />
+        </label>
+        <div className="feedback-modal-actions">
+          <button className="feedback-button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="send-button" disabled={busy || !value.trim()} type="button" onClick={onSave}>
+            Save
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type MoveConversationDialogProps = {
+  busy: boolean;
+  folders: ConversationFolder[];
+  newFolderName: string;
+  selectedFolderId: string;
+  title: string;
+  onChangeNewFolderName: (value: string) => void;
+  onChangeSelectedFolderId: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+};
+
+function MoveConversationDialog({
+  busy,
+  folders,
+  newFolderName,
+  selectedFolderId,
+  title,
+  onChangeNewFolderName,
+  onChangeSelectedFolderId,
+  onClose,
+  onSave,
+}: MoveConversationDialogProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-modal="true" className="feedback-modal conversation-modal" role="dialog">
+        <div className="feedback-modal-header">
+          <div>
+            <div className="message-label">File Conversation</div>
+            <h2 className="feedback-modal-title">{title}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <label className="feedback-comment-field">
+          <span className="message-label">Existing folder</span>
+          <select
+            className="profile-picker-select conversation-select"
+            value={selectedFolderId}
+            onChange={(event) => onChangeSelectedFolderId(event.target.value)}
+          >
+            <option value="">Unfiled</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {folder.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="feedback-comment-field">
+          <span className="message-label">Or create a new folder</span>
+          <input
+            className="feedback-comment-input conversation-text-input"
+            placeholder="New folder name"
+            value={newFolderName}
+            onChange={(event) => onChangeNewFolderName(event.target.value)}
+          />
+        </label>
+        <div className="feedback-modal-actions">
+          <button className="feedback-button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="send-button" disabled={busy} type="button" onClick={onSave}>
+            Save
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type DeleteFolderDialogProps = {
+  busy: boolean;
+  conversationCount: number;
+  folderName: string;
+  onClose: () => void;
+  onDeleteFolderAndContents: () => void;
+  onDeleteFolderOnly: () => void;
+};
+
+function DeleteFolderDialog({
+  busy,
+  conversationCount,
+  folderName,
+  onClose,
+  onDeleteFolderAndContents,
+  onDeleteFolderOnly,
+}: DeleteFolderDialogProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-modal="true" className="feedback-modal conversation-modal" role="dialog">
+        <div className="feedback-modal-header">
+          <div>
+            <div className="message-label">Delete Folder</div>
+            <h2 className="feedback-modal-title">{folderName}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <p className="conversation-modal-copy">
+          This folder contains {conversationCount} saved conversation{conversationCount === 1 ? "" : "s"}.
+        </p>
+        <div className="conversation-modal-actions">
+          <button className="feedback-button" disabled={busy} type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="feedback-button" disabled={busy} type="button" onClick={onDeleteFolderOnly}>
+            Delete folder only
+          </button>
+          <button className="send-button danger-button" disabled={busy} type="button" onClick={onDeleteFolderAndContents}>
+            Delete folder and conversations
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function mapConversationSummary(conversation: {
+  id: string;
+  title: string;
+  folder_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}): ConversationSummary {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    folderId: conversation.folder_id ?? null,
+    createdAt: conversation.created_at,
+    updatedAt: conversation.updated_at,
+  };
 }
 
 function deriveCoachingRequirements(
