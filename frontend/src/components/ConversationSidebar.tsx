@@ -312,7 +312,7 @@ function FileConversationIcon() {
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="1.8"
+        strokeWidth="2.2"
       />
     </svg>
   );
@@ -322,7 +322,15 @@ function OpenFolderIcon() {
   return (
     <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
       <path
-        d="M4.2 8.8c0-.8.7-1.4 1.4-1.4h4.2l1.5 1.4h6.8c.9 0 1.6.8 1.4 1.6l-1.2 5.2c-.2.7-.8 1.2-1.5 1.2H5.9c-.9 0-1.6-.7-1.6-1.6l-.1-6.4Z"
+        d="M4.3 8.2c0-.8.7-1.4 1.4-1.4H10l1.5 1.4h6.6c.9 0 1.5.7 1.4 1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M6.7 10.8h12.1c.9 0 1.5.8 1.3 1.6l-1 4.1c-.2.7-.8 1.2-1.5 1.2H5.8c-.9 0-1.5-.9-1.1-1.8l1.1-3.1c.2-.6.8-1 1.4-1Z"
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
