@@ -181,6 +181,12 @@ export function App() {
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
   const emptyTranscriptMessage = buildWelcomeMessage(session, enforcementLevel, summaryType, transformerProfile);
+  const activeConversationKey = `conv_${conversationId}`;
+  const activeSavedConversation = findConversationSummaryById(
+    activeConversationKey,
+    unfiledConversations,
+    conversationFolders,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1392,6 +1398,38 @@ export function App() {
         />
         <div className="chat-main">
           {conversationNotice ? <div className="status-banner">{conversationNotice}</div> : null}
+          {activeSavedConversation ? (
+            <div className="active-conversation-panel">
+              <div className="active-conversation-copy">
+                <div className="message-label">Saved Conversation</div>
+                <button
+                  className="active-conversation-title"
+                  disabled={conversationActionBusy}
+                  type="button"
+                  onClick={() => {
+                    setRenameTarget({ kind: "conversation", item: activeSavedConversation });
+                    setRenameValue(activeSavedConversation.title);
+                  }}
+                >
+                  {activeSavedConversation.title}
+                </button>
+              </div>
+              <div className="active-conversation-actions">
+                <button
+                  className="feedback-button"
+                  disabled={conversationActionBusy}
+                  type="button"
+                  onClick={() => {
+                    setMoveConversationTarget(activeSavedConversation);
+                    setMoveTargetFolderId(activeSavedConversation.folderId ?? "");
+                    setNewFolderName("");
+                  }}
+                >
+                  {activeSavedConversation.folderId ? "Move to folder" : "File in folder"}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <Transcript
             turns={turns}
             showDetails={showDetails}
@@ -1687,6 +1725,26 @@ function mapConversationSummary(conversation: {
     createdAt: conversation.created_at,
     updatedAt: conversation.updated_at,
   };
+}
+
+function findConversationSummaryById(
+  conversationId: string,
+  unfiledConversations: ConversationSummary[],
+  folders: ConversationFolder[],
+): ConversationSummary | null {
+  const unfiledMatch = unfiledConversations.find((conversation) => conversation.id === conversationId);
+  if (unfiledMatch) {
+    return unfiledMatch;
+  }
+
+  for (const folder of folders) {
+    const folderMatch = folder.conversations.find((conversation) => conversation.id === conversationId);
+    if (folderMatch) {
+      return folderMatch;
+    }
+  }
+
+  return null;
 }
 
 function deriveCoachingRequirements(
