@@ -1,5 +1,4 @@
 from app.core.auth import AuthenticatedUser
-from app.core.config import settings
 from app.schemas.chat import (
     ChatResponseMetadata,
     ChatSendRequest,
@@ -17,7 +16,6 @@ from app.schemas.chat import (
     MessagePayload,
     TransformerMetadata,
 )
-from app.services.llm_client import LlmClient
 from app.services.transformer_client import TransformerClient
 from app.services.feedback_service import FeedbackService
 from app.services.conversation_service import ConversationService
@@ -27,7 +25,6 @@ from app.services.runtime_llm import RuntimeLlmResolver
 class ChatService:
     def __init__(self) -> None:
         self.transformer_client = TransformerClient()
-        self.llm_client = LlmClient()
         self.feedback_service = FeedbackService()
         self.conversation_service = ConversationService()
         self.runtime_llm_resolver = RuntimeLlmResolver()
@@ -43,130 +40,65 @@ class ChatService:
             conversation_id=payload.conversation_id,
             user_id_hash=user.user_id_hash,
         )
-        transformer_metadata: dict[str, object]
-        transformer_conversation = stored_transformer_conversation
-        transformer_result_type = "transformed"
-        transformer_findings: list[dict[str, object]] = []
-        coaching_tip = None
-        blocking_message = None
-        transformer_scoring = None
-        coaching_requirements = None
-
-        if payload.debug.transform_enabled and runtime_llm.transformation_enabled:
-            transformed = await self.transformer_client.transform_prompt(
-                runtime_config=runtime_llm,
-                session_id=payload.conversation_id,
-                conversation_id=payload.conversation_id,
-                user_id_hash=user.user_id_hash,
-                raw_prompt=raw_user_text,
-                conversation=stored_transformer_conversation,
-                summary_type=payload.summary_type,
-                enforcement_level=payload.debug.enforcement_level,
-            )
-            transformer_metadata = transformed.get("metadata", {})
-            transformer_result_type = transformed.get("result_type", "transformed")
-            transformer_conversation = transformed.get("conversation")
-            transformer_findings = transformed.get("findings", [])
-            coaching_tip = transformed.get("coaching_tip")
-            blocking_message = transformed.get("blocking_message")
-            task_type = transformed.get("task_type", "unknown")
-            persona_source = transformer_metadata.get("persona_source", "generic_default")
-            profile_version = transformer_metadata.get("profile_version")
-            requested_provider = transformer_metadata.get("requested_provider", runtime_llm.provider)
-            requested_model = transformer_metadata.get("requested_model", runtime_llm.model)
-            resolved_provider = transformer_metadata.get("resolved_provider", runtime_llm.provider)
-            resolved_model = transformer_metadata.get("resolved_model", runtime_llm.model)
-            used_fallback_model = transformer_metadata.get("used_fallback_model", False)
-            used_authoritative_tenant_llm = transformer_metadata.get("used_authoritative_tenant_llm", False)
-            rules_applied = transformer_metadata.get("rules_applied", [])
-
-            if transformer_result_type == "transformed":
-                transformed_prompt = transformed.get("transformed_prompt", "")
-                transformation_applied = True
-                bypass_reason = None
-                assistant_kind = "assistant"
-                persisted_coaching_text = _enhance_coaching_tip(
-                    coaching_tip,
-                    raw_user_text=raw_user_text,
-                    transformer_conversation=transformer_conversation,
-                )
-                coaching_requirements = (
-                    _build_coaching_requirements(raw_user_text, transformer_conversation)
-                    if persisted_coaching_text
-                    else None
-                )
-                llm_response = await self.llm_client.generate_response(
-                    runtime_config=runtime_llm,
-                    transformed_prompt=transformed_prompt,
-                    conversation_history=conversation_history,
-                    attachments=payload.attachments,
-                )
-                assistant_text = llm_response.text
-                assistant_images = [
-                    {"media_type": image.media_type, "base64_data": image.base64_data}
-                    for image in llm_response.generated_images
-                ]
-            elif transformer_result_type == "coaching":
-                transformed_prompt = ""
-                transformation_applied = False
-                bypass_reason = "prompt_transform_coaching"
-                assistant_kind = "coaching"
-                persisted_coaching_text = ""
-                coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
-                assistant_text = _enhance_coaching_tip(
-                    coaching_tip or "Add more prompt structure and try again.",
-                    raw_user_text=raw_user_text,
-                    transformer_conversation=transformer_conversation,
-                )
-                assistant_images = []
-            else:
-                transformed_prompt = ""
-                transformation_applied = False
-                bypass_reason = "prompt_transform_blocked"
-                assistant_kind = "blocked"
-                persisted_coaching_text = ""
-                coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
-                assistant_text = blocking_message or "This request cannot be sent to the LLM as written."
-                assistant_images = []
-        else:
-            transformed_prompt = raw_user_text
-            task_type = "bypassed"
-            persona_source = "bypassed"
-            profile_version = None
-            requested_provider = runtime_llm.provider
-            requested_model = runtime_llm.model
-            resolved_provider = runtime_llm.provider
-            resolved_model = runtime_llm.model
-            used_fallback_model = False
-            used_authoritative_tenant_llm = False
-            rules_applied = []
-            transformation_applied = False
-            bypass_reason = "tenant_transformation_disabled" if not runtime_llm.transformation_enabled else "prompt_transform_disabled"
-            assistant_kind = "assistant"
-            persisted_coaching_text = ""
-            coaching_requirements = None
-            llm_response = await self.llm_client.generate_response(
-                runtime_config=runtime_llm,
-                transformed_prompt=transformed_prompt,
-                conversation_history=conversation_history,
-                attachments=payload.attachments,
-            )
-            assistant_text = llm_response.text
-            assistant_images = [
-                {"media_type": image.media_type, "base64_data": image.base64_data}
-                for image in llm_response.generated_images
-            ]
-            transformer_metadata = {}
-
-        visible_transformed_text = (
-            transformed_prompt if payload.debug.show_details and transformation_applied else ""
+        executed = await self.transformer_client.execute_chat(
+            runtime_config=runtime_llm,
+            session_id=payload.conversation_id,
+            conversation_id=payload.conversation_id,
+            user_id_hash=user.user_id_hash,
+            raw_prompt=raw_user_text,
+            conversation_history=conversation_history,
+            attachments=payload.attachments,
+            conversation=stored_transformer_conversation,
+            summary_type=payload.summary_type,
+            enforcement_level=payload.debug.enforcement_level,
+            transform_enabled=payload.debug.transform_enabled,
         )
+        transformer_metadata = executed.get("metadata", {})
+        transformer_conversation = executed.get("conversation")
+        transformer_result_type = executed.get("result_type", "transformed")
+        transformer_findings = executed.get("findings", [])
+        coaching_tip = executed.get("coaching_tip")
+        blocking_message = executed.get("blocking_message")
+        transformer_scoring = executed.get("scoring")
+        task_type = executed.get("task_type", "unknown")
+        persona_source = transformer_metadata.get("persona_source", "generic_default")
+        profile_version = transformer_metadata.get("profile_version")
+        requested_provider = transformer_metadata.get("requested_provider", runtime_llm.provider)
+        requested_model = transformer_metadata.get("requested_model", runtime_llm.model)
+        resolved_provider = transformer_metadata.get("resolved_provider", runtime_llm.provider)
+        resolved_model = transformer_metadata.get("resolved_model", runtime_llm.model)
+        used_fallback_model = transformer_metadata.get("used_fallback_model", False)
+        used_authoritative_tenant_llm = transformer_metadata.get("used_authoritative_tenant_llm", False)
+        rules_applied = transformer_metadata.get("rules_applied", [])
+        execution_owner = transformer_metadata.get("execution_owner", "transformer")
+        transformation_applied = transformer_metadata.get("transformation_applied", transformer_result_type == "transformed")
+        bypass_reason = transformer_metadata.get("bypass_reason")
+        transformed_prompt = executed.get("transformed_prompt", "") or ""
+        assistant_text = executed.get("assistant_text", "")
+        assistant_images = list(executed.get("assistant_images") or [])
 
-        if payload.debug.transform_enabled and runtime_llm.scoring_enabled:
-            transformer_scoring = await self.transformer_client.fetch_conversation_score(
-                conversation_id=payload.conversation_id,
-                user_id_hash=user.user_id_hash,
+        if transformer_result_type == "coaching":
+            assistant_kind = "coaching"
+            persisted_coaching_text = ""
+            coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
+        elif transformer_result_type == "blocked":
+            assistant_kind = "blocked"
+            persisted_coaching_text = ""
+            coaching_requirements = _build_coaching_requirements(raw_user_text, transformer_conversation)
+        else:
+            assistant_kind = "assistant"
+            persisted_coaching_text = _enhance_coaching_tip(
+                coaching_tip,
+                raw_user_text=raw_user_text,
+                transformer_conversation=transformer_conversation,
             )
+            coaching_requirements = (
+                _build_coaching_requirements(raw_user_text, transformer_conversation)
+                if persisted_coaching_text
+                else None
+            )
+
+        visible_transformed_text = transformed_prompt if payload.debug.show_details and transformation_applied else ""
 
         turn_id = self.conversation_service.append_turn(
             conversation_id=payload.conversation_id,
@@ -195,6 +127,7 @@ class ChatService:
             ],
             metadata=ChatResponseMetadata(
                 transformer=TransformerMetadata(
+                    execution_owner=execution_owner,
                     task_type=task_type,
                     persona_source=persona_source,
                     profile_version=profile_version,
@@ -215,8 +148,8 @@ class ChatService:
                     scoring=transformer_scoring,
                 ),
                 llm=LlmMetadata(
-                    provider=runtime_llm.provider,
-                    model=runtime_llm.model,
+                    provider=resolved_provider,
+                    model=resolved_model,
                 ),
             ),
         )

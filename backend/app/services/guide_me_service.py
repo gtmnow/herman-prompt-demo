@@ -17,7 +17,6 @@ from app.schemas.chat import (
     GuideMeStartRequest,
 )
 from app.services.conversation_service import ConversationService
-from app.services.llm_client import LlmClient
 from app.services.runtime_llm import RuntimeLlmConfig, RuntimeLlmResolver
 from app.services.transformer_client import TransformerClient
 
@@ -25,7 +24,6 @@ from app.services.transformer_client import TransformerClient
 class GuideMeService:
     def __init__(self) -> None:
         self.conversation_service = ConversationService()
-        self.llm_client = LlmClient()
         self.transformer_client = TransformerClient()
         self.runtime_llm_resolver = RuntimeLlmResolver()
 
@@ -56,6 +54,9 @@ class GuideMeService:
             runtime_config=runtime_config,
         )
         initial_answers = source_analysis.get("answers", {})
+        initial_answers["_conversation_id"] = payload.conversation_id
+        initial_answers["_user_id_hash"] = user.user_id_hash
+        initial_answers["_session_id"] = f"{payload.conversation_id}-guide"
         initial_step = source_analysis.get("current_step", "intro")
         initial_guidance = source_analysis.get("guidance_text", "")
         initial_options = source_analysis.get("refinement_options", [])
@@ -115,6 +116,9 @@ class GuideMeService:
                 raise ValueError("Guide Me answer cannot be empty.")
 
             answers = dict(guide_session.answers or {})
+            answers["_conversation_id"] = payload.conversation_id
+            answers["_user_id_hash"] = user.user_id_hash
+            answers["_session_id"] = str(guide_session.id or f"{payload.conversation_id}-guide")
             normalized = answer.casefold()
             current_step = guide_session.current_step
             skip_extraction = False
@@ -476,8 +480,15 @@ class GuideMeService:
                 score=score,
                 final_prompt=_compose_final_prompt(answers),
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
-            payload = _extract_json_object(response_text)
+            helper = await self.transformer_client.generate_guide_me_helper(
+                runtime_config=runtime_config,
+                session_id=str(answers.get("_guide_me_session_id") or answers.get("_session_id") or "guide-me"),
+                conversation_id=str(answers.get("_conversation_id") or "guide-me"),
+                user_id_hash=str(answers.get("_user_id_hash") or runtime_config.user_id_hash),
+                helper_kind="contextual_step_examples",
+                prompt=prompt,
+            )
+            payload = helper.get("payload", {})
             examples: dict[str, str] = {}
             for key in ("describe_need", "who", "why", "how", "what"):
                 value = payload.get(key)
@@ -526,8 +537,15 @@ class GuideMeService:
                 score=score,
                 final_prompt=final_prompt,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
-            payload = _extract_json_object(response_text)
+            helper = await self.transformer_client.generate_guide_me_helper(
+                runtime_config=runtime_config,
+                session_id=str(answers.get("_guide_me_session_id") or answers.get("_session_id") or "guide-me"),
+                conversation_id=str(answers.get("_conversation_id") or "guide-me"),
+                user_id_hash=str(answers.get("_user_id_hash") or runtime_config.user_id_hash),
+                helper_kind="refinement_options",
+                prompt=prompt,
+            )
+            payload = helper.get("payload", {})
             options = payload.get("options")
             if not isinstance(options, list):
                 return fallback
@@ -580,8 +598,15 @@ class GuideMeService:
                 preferred_focus=fallback_focus,
                 retry_due_to_stall=retry_due_to_stall,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
-            payload = _extract_json_object(response_text)
+            helper = await self.transformer_client.generate_guide_me_helper(
+                runtime_config=runtime_config,
+                session_id=str(answers.get("_guide_me_session_id") or answers.get("_session_id") or "guide-me"),
+                conversation_id=str(answers.get("_conversation_id") or "guide-me"),
+                user_id_hash=str(answers.get("_user_id_hash") or runtime_config.user_id_hash),
+                helper_kind="specificity_refinement",
+                prompt=prompt,
+            )
+            payload = helper.get("payload", {})
 
             focus_area_raw = str(payload.get("focus_area") or "").strip().lower()
             focus_area = focus_area_raw if focus_area_raw in {"who", "task", "context", "output", "overall"} else fallback_focus
@@ -630,8 +655,15 @@ class GuideMeService:
                 answers=answers,
                 personalization=personalization,
             )
-            response_text = await self.llm_client.generate_text(prompt=prompt, runtime_config=runtime_config)
-            parsed = _extract_json_object(response_text)
+            helper = await self.transformer_client.generate_guide_me_helper(
+                runtime_config=runtime_config,
+                session_id=str(answers.get("_guide_me_session_id") or answers.get("_session_id") or "guide-me"),
+                conversation_id=str(answers.get("_conversation_id") or "guide-me"),
+                user_id_hash=str(answers.get("_user_id_hash") or runtime_config.user_id_hash),
+                helper_kind="answer_extraction",
+                prompt=prompt,
+            )
+            parsed = helper.get("payload", {})
             extracted: dict[str, str] = {}
             for key in ("who", "task", "context", "output", "instructions"):
                 value = parsed.get(key)
@@ -690,7 +722,11 @@ class GuideMeService:
         ) -> dict:
         if not source_prompt:
             answers = await self._refresh_contextual_step_examples(
-                answers={},
+                answers={
+                    "_conversation_id": conversation_id,
+                    "_user_id_hash": user.user_id_hash,
+                    "_session_id": f"{conversation_id}-guide",
+                },
                 personalization=personalization,
                 requirements=None,
                 score=None,
@@ -706,6 +742,9 @@ class GuideMeService:
 
         answers = _extract_labeled_answers(source_prompt)
         answers["_source_prompt"] = source_prompt
+        answers["_conversation_id"] = conversation_id
+        answers["_user_id_hash"] = user.user_id_hash
+        answers["_session_id"] = f"{conversation_id}-guide"
         if chat_context:
             answers["_chat_context"] = chat_context
         if summary_type is not None:
@@ -1560,16 +1599,6 @@ def _build_specificity_refinement_prompt(
         f"Previous guidance: {previous_guidance or 'None'}\n"
         f"Previous score payload: {json.dumps(previous_score, ensure_ascii=True)}"
     )
-
-
-def _extract_json_object(text: str) -> dict:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("LLM response did not contain JSON.")
-    payload = json.loads(match.group(0))
-    if not isinstance(payload, dict):
-        raise ValueError("LLM response JSON was not an object.")
-    return payload
 
 
 def _looks_like_yes(value: str) -> bool:

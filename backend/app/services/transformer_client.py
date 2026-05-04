@@ -3,6 +3,8 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.schemas.chat import AttachmentReference
+from app.services.conversation_store import StoredTurn
 from app.services.runtime_llm import RuntimeLlmConfig
 
 
@@ -76,3 +78,80 @@ class TransformerClient:
             )
         except RuntimeError:
             return None
+
+    async def execute_chat(
+        self,
+        *,
+        runtime_config: RuntimeLlmConfig,
+        session_id: str,
+        conversation_id: str,
+        user_id_hash: str,
+        raw_prompt: str,
+        conversation_history: list[StoredTurn],
+        attachments: list[AttachmentReference],
+        conversation: dict[str, Any] | None = None,
+        summary_type: int | None = None,
+        enforcement_level: str | None = None,
+        transform_enabled: bool = True,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "conversation_id": conversation_id,
+            "user_id_hash": user_id_hash,
+            "raw_prompt": raw_prompt,
+            "target_llm": {
+                "provider": runtime_config.provider,
+                "model": runtime_config.model,
+            },
+            "conversation_history": [
+                {
+                    "transformed_text": turn.transformed_text,
+                    "assistant_text": turn.assistant_text,
+                }
+                for turn in conversation_history
+            ],
+            "attachments": [
+                {
+                    "id": attachment.id,
+                    "kind": attachment.kind,
+                    "name": attachment.name,
+                    "media_type": attachment.media_type,
+                    "provider_file_id": attachment.provider_file_id,
+                    "size_bytes": attachment.size_bytes,
+                }
+                for attachment in attachments
+            ],
+            "transform_enabled": transform_enabled,
+        }
+        if conversation is not None:
+            payload["conversation"] = conversation
+        if summary_type is not None:
+            payload["summary_type"] = summary_type
+        if enforcement_level is not None:
+            payload["enforcement_level"] = enforcement_level
+        return await self._request("POST", "/api/chat/execute", json=payload)
+
+    async def generate_guide_me_helper(
+        self,
+        *,
+        runtime_config: RuntimeLlmConfig,
+        session_id: str,
+        conversation_id: str,
+        user_id_hash: str,
+        helper_kind: str,
+        prompt: str,
+        max_output_tokens: int = 800,
+    ) -> dict[str, Any]:
+        payload = {
+            "session_id": session_id,
+            "conversation_id": conversation_id,
+            "user_id_hash": user_id_hash,
+            "target_llm": {
+                "provider": runtime_config.provider,
+                "model": runtime_config.model,
+            },
+            "helper_kind": helper_kind,
+            "prompt": prompt,
+            "max_output_tokens": max_output_tokens,
+        }
+        return await self._request("POST", "/api/guide_me/generate", json=payload)

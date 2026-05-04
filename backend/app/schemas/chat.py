@@ -167,6 +167,7 @@ class TransformerScoring(BaseModel):
 
 
 class TransformerMetadata(BaseModel):
+    execution_owner: Literal["transformer"] = "transformer"
     task_type: str
     persona_source: str
     profile_version: str | None = None

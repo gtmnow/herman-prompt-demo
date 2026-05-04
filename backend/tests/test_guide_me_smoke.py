@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -32,80 +31,61 @@ class FakeConversationService:
         return []
 
 
-class FakeLlmClient:
-    async def generate_text(
-        self,
-        *,
-        prompt: str,
-        conversation_history: list[Any] | None = None,
-        runtime_config: Any | None = None,
-    ) -> str:
+def _fake_helper_payload(prompt: str) -> dict[str, Any]:
         if "Return strict JSON with exactly these keys: describe_need, who, why, how, what." in prompt:
             if "ram simms" in prompt.lower() or "supplier" in prompt.lower():
-                return json.dumps(
-                    {
-                        "describe_need": "I need help finding a cheaper source for RAM SIMMS that can still meet my application requirements.",
-                        "who": "You are an experienced discrete parts sourcing specialist helping me find a cheaper source for RAM SIMMS.",
-                        "why": "Prioritize reliable suppliers, realistic pricing, and compatibility with the application requirements.",
-                        "how": "This is for a parts-buying decision, so include current availability, compatibility constraints, and any sourcing risks I should consider.",
-                        "what": "Respond in this chat with a concise sourcing summary, a comparison table, and clear next-step recommendations.",
-                    }
-                )
-            return json.dumps(
-                {
-                    "describe_need": "I need a more specific, higher-quality prompt for the task I am working on.",
-                    "who": "You are an experienced domain specialist helping me improve the quality of this prompt.",
-                    "why": "Keep the response practical, specific, and focused on the exact result I need.",
-                    "how": "This is for a real work scenario, so include the relevant audience, constraints, and background details.",
-                    "what": "Respond in this chat with a concise summary, clear bullet points, and specific next steps.",
+                return {
+                    "describe_need": "I need help finding a cheaper source for RAM SIMMS that can still meet my application requirements.",
+                    "who": "You are an experienced discrete parts sourcing specialist helping me find a cheaper source for RAM SIMMS.",
+                    "why": "Prioritize reliable suppliers, realistic pricing, and compatibility with the application requirements.",
+                    "how": "This is for a parts-buying decision, so include current availability, compatibility constraints, and any sourcing risks I should consider.",
+                    "what": "Respond in this chat with a concise sourcing summary, a comparison table, and clear next-step recommendations.",
                 }
-            )
+            return {
+                "describe_need": "I need a more specific, higher-quality prompt for the task I am working on.",
+                "who": "You are an experienced domain specialist helping me improve the quality of this prompt.",
+                "why": "Keep the response practical, specific, and focused on the exact result I need.",
+                "how": "This is for a real work scenario, so include the relevant audience, constraints, and background details.",
+                "what": "Respond in this chat with a concise summary, clear bullet points, and specific next steps.",
+            }
 
         if "Return strict JSON with a single key named options" in prompt:
             if "Focus area: context" in prompt:
-                return json.dumps(
-                    {
-                        "options": [
-                            "Context: The role supports mid-market B2B SaaS customers and requires renewal ownership, cross-functional stakeholder management, and 3+ years of post-sale account management experience.",
-                            "Context: We are receiving many applicants who lack SaaS customer success experience, commercial renewal accountability, and hands-on coordination with sales, support, and product teams.",
-                            "Context: The role is client-facing, supports revenue retention, and requires candidates with proven customer success experience in a SaaS environment plus strong cross-functional collaboration skills.",
-                        ]
-                    }
-                )
-            return json.dumps(
-                {
+                return {
                     "options": [
-                        "Output: Respond in two sections with exact bullet counts.",
-                        "Output: Use clear headers and numbered actions.",
-                        "Output: Make the structure more explicit and measurable.",
+                        "Context: The role supports mid-market B2B SaaS customers and requires renewal ownership, cross-functional stakeholder management, and 3+ years of post-sale account management experience.",
+                        "Context: We are receiving many applicants who lack SaaS customer success experience, commercial renewal accountability, and hands-on coordination with sales, support, and product teams.",
+                        "Context: The role is client-facing, supports revenue retention, and requires candidates with proven customer success experience in a SaaS environment plus strong cross-functional collaboration skills.",
                     ]
                 }
-            )
+            return {
+                "options": [
+                    "Output: Respond in two sections with exact bullet counts.",
+                    "Output: Use clear headers and numbered actions.",
+                    "Output: Make the structure more explicit and measurable.",
+                ]
+            }
 
         if "Return strict JSON with exactly these keys" in prompt:
             if "preferred focus section is supplied" in prompt and "context" in prompt.lower():
-                return json.dumps(
-                    {
-                        "focus_area": "context",
-                        "guidance": "Your prompt is well structured, but the Context still needs more concrete role requirements and operating details.",
-                        "options": [
-                            "Context: The role supports mid-market B2B SaaS customers and requires renewal ownership, cross-functional stakeholder management, and 3+ years of post-sale account management experience.",
-                            "Context: We are receiving many applicants who lack SaaS customer success experience, commercial renewal accountability, and hands-on coordination with sales, support, and product teams.",
-                            "Context: The role is client-facing, supports revenue retention, and requires candidates with proven customer success experience in a SaaS environment plus strong cross-functional collaboration skills.",
-                        ],
-                    }
-                )
-            return json.dumps(
-                {
-                    "focus_area": "overall",
-                    "guidance": "The prompt still needs one stronger improvement.",
+                return {
+                    "focus_area": "context",
+                    "guidance": "Your prompt is well structured, but the Context still needs more concrete role requirements and operating details.",
                     "options": [
-                        "Task: Make the target more measurable.",
-                        "Context: Add more specifics.",
-                        "Output: Tighten the response format.",
+                        "Context: The role supports mid-market B2B SaaS customers and requires renewal ownership, cross-functional stakeholder management, and 3+ years of post-sale account management experience.",
+                        "Context: We are receiving many applicants who lack SaaS customer success experience, commercial renewal accountability, and hands-on coordination with sales, support, and product teams.",
+                        "Context: The role is client-facing, supports revenue retention, and requires candidates with proven customer success experience in a SaaS environment plus strong cross-functional collaboration skills.",
                     ],
                 }
-            )
+            return {
+                "focus_area": "overall",
+                "guidance": "The prompt still needs one stronger improvement.",
+                "options": [
+                    "Task: Make the target more measurable.",
+                    "Context: Add more specifics.",
+                    "Output: Tighten the response format.",
+                ],
+            }
 
         if "Return strict JSON with optional keys" in prompt:
             prompt_lower = prompt.lower()
@@ -121,9 +101,9 @@ class FakeLlmClient:
                 payload["output"] = user_answer
             if not payload and "current step: describe_need" in prompt_lower:
                 payload["task"] = user_answer
-            return json.dumps(payload)
+            return payload
 
-        return json.dumps({})
+        return {}
 
 
 class FakeTransformerClient:
@@ -188,6 +168,25 @@ class FakeTransformerClient:
             "final_score": final_score,
             "final_llm_score": final_llm_score,
             "structural_score": 100,
+        }
+
+    async def generate_guide_me_helper(
+        self,
+        *,
+        runtime_config: Any | None = None,
+        session_id: str,
+        conversation_id: str,
+        user_id_hash: str,
+        helper_kind: str,
+        prompt: str,
+        max_output_tokens: int = 800,
+    ) -> dict[str, Any]:
+        return {
+            "session_id": session_id,
+            "conversation_id": conversation_id,
+            "user_id_hash": user_id_hash,
+            "helper_kind": helper_kind,
+            "payload": _fake_helper_payload(prompt),
         }
 
     @staticmethod
@@ -314,7 +313,6 @@ class GuideMeSmokeTests(unittest.IsolatedAsyncioTestCase):
 
         self.service = GuideMeService()
         self.service.transformer_client = FakeTransformerClient()
-        self.service.llm_client = FakeLlmClient()
         self.service.conversation_service = FakeConversationService()
         self.service.runtime_llm_resolver.resolve_for_user = lambda user: RuntimeLlmConfig(
             tenant_id="demo",
