@@ -65,26 +65,14 @@ class OpenAIAdapter(ProviderAdapter):
         # Responses API input is assembled from prior transformed turns plus the newest
         # transformed instruction. Image attachments are added to the latest user turn,
         # while document attachments are routed through code_interpreter.
-        payload: dict[str, Any] = {
-            "model": runtime_config.model,
-            "input": _build_input_items(
-                conversation_history=conversation_history,
-                transformed_prompt=transformed_prompt,
-                image_attachments=image_attachments,
-            ),
-            "temperature": settings.llm_temperature,
-            "max_output_tokens": settings.llm_max_tokens,
-            "store": False,
-        }
-
-        if not wants_image_generation:
-            payload["text"] = {"format": {"type": "text"}}
-
-        tools = _build_tools(document_attachments=document_attachments, wants_image_generation=wants_image_generation)
-        if tools:
-            payload["tools"] = tools
-            if document_attachments and not wants_image_generation:
-                payload["tool_choice"] = {"type": "code_interpreter"}
+        payload = _build_responses_payload(
+            model=runtime_config.model,
+            conversation_history=conversation_history,
+            transformed_prompt=transformed_prompt,
+            image_attachments=image_attachments,
+            document_attachments=document_attachments,
+            wants_image_generation=wants_image_generation,
+        )
 
         headers = {
             "Authorization": f"Bearer {runtime_config.api_key}",
@@ -187,6 +175,44 @@ def _build_tools(
         )
 
     return tools
+
+
+def _build_responses_payload(
+    *,
+    model: str,
+    conversation_history: list[StoredTurn],
+    transformed_prompt: str,
+    image_attachments: list[AttachmentReference],
+    document_attachments: list[AttachmentReference],
+    wants_image_generation: bool,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": _build_input_items(
+            conversation_history=conversation_history,
+            transformed_prompt=transformed_prompt,
+            image_attachments=image_attachments,
+        ),
+        "max_output_tokens": settings.llm_max_tokens,
+        "store": False,
+    }
+
+    if _supports_temperature_parameter(model):
+        payload["temperature"] = settings.llm_temperature
+
+    if not wants_image_generation:
+        payload["text"] = {"format": {"type": "text"}}
+
+    tools = _build_tools(
+        document_attachments=document_attachments,
+        wants_image_generation=wants_image_generation,
+    )
+    if tools:
+        payload["tools"] = tools
+        if document_attachments and not wants_image_generation:
+            payload["tool_choice"] = {"type": "code_interpreter"}
+
+    return payload
 
 
 def _build_input_items(
@@ -292,3 +318,8 @@ def _get_extension(filename: str) -> str:
 def _supports_openai_image_generation(model: str) -> bool:
     normalized_model = model.strip().casefold()
     return normalized_model in OPENAI_IMAGE_GENERATION_MODELS
+
+
+def _supports_temperature_parameter(model: str) -> bool:
+    normalized_model = model.strip().casefold()
+    return not normalized_model.startswith("gpt-5")
