@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(default=800, alias="LLM_MAX_TOKENS")
     llm_timeout_seconds: float = Field(default=45.0, alias="LLM_TIMEOUT_SECONDS")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    herman_db_canonical_mode: bool = Field(default=False, alias="HERMAN_DB_CANONICAL_MODE")
+    herman_db_version_table: str = Field(default="alembic_version", alias="HERMAN_DB_VERSION_TABLE")
+    herman_db_allowed_revisions_raw: str = Field(default="20260504_0006,20260504_0007,20260504_0008", alias="HERMAN_DB_ALLOWED_REVISIONS")
     cors_allowed_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ALLOWED_ORIGINS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -49,6 +52,22 @@ class Settings(BaseSettings):
     @property
     def is_development_env(self) -> bool:
         return self.app_env.strip().lower() in {"dev", "development", "local", "test", "testing"}
+
+    @property
+    def herman_db_allowed_revisions(self) -> set[str]:
+        return {
+            revision.strip()
+            for revision in self.herman_db_allowed_revisions_raw.split(",")
+            if revision.strip()
+        }
+
+    @property
+    def effective_herman_db_canonical_mode(self) -> bool:
+        if self.herman_db_canonical_mode:
+            return True
+        if not self.database_url:
+            return False
+        return not self.database_url.startswith("sqlite") and not self.is_development_env
 
 
 @lru_cache

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
+from app.schema_contract import validate_schema_contract
 
 
 if not settings.database_url:
@@ -30,6 +31,14 @@ def initialize_database() -> None:
     _ = ConversationTurn
     _ = GuideMeSession
     _ = Feedback
+    if settings.effective_herman_db_canonical_mode and not settings.database_url.startswith("sqlite"):
+        validate_schema_contract(
+            engine=engine,
+            version_table=settings.herman_db_version_table,
+            allowed_revisions=settings.herman_db_allowed_revisions,
+        )
+        return
+
     Base.metadata.create_all(bind=engine)
     _ensure_conversation_columns()
 
