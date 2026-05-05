@@ -26,7 +26,8 @@ class TransformerClient:
             )
 
         if response.status_code >= 400:
-            raise RuntimeError("Prompt Transformer request failed.")
+            detail = _extract_error_detail(response)
+            raise RuntimeError(f"Prompt Transformer request failed: {response.status_code} {detail}")
 
         return response.json()
 
@@ -56,7 +57,11 @@ class TransformerClient:
             },
         }
         if conversation is not None:
-            payload["conversation"] = conversation
+            payload["conversation"] = _normalize_transformer_conversation(
+                conversation,
+                conversation_id=conversation_id,
+                enforcement_level=enforcement_level,
+            )
         if summary_type is not None:
             payload["summary_type"] = summary_type
         if enforcement_level is not None:
@@ -104,11 +109,14 @@ class TransformerClient:
                 "model": runtime_config.model,
             },
             "conversation_history": [
-                {
-                    "transformed_text": turn.transformed_text,
-                    "assistant_text": turn.assistant_text,
-                }
+                normalized_turn
                 for turn in conversation_history
+                if (
+                    normalized_turn := _normalize_conversation_history_turn(
+                        transformed_text=turn.transformed_text,
+                        assistant_text=turn.assistant_text,
+                    )
+                )
             ],
             "attachments": [
                 {
@@ -124,7 +132,11 @@ class TransformerClient:
             "transform_enabled": transform_enabled,
         }
         if conversation is not None:
-            payload["conversation"] = conversation
+            payload["conversation"] = _normalize_transformer_conversation(
+                conversation,
+                conversation_id=conversation_id,
+                enforcement_level=enforcement_level,
+            )
         if summary_type is not None:
             payload["summary_type"] = summary_type
         if enforcement_level is not None:
@@ -155,3 +167,139 @@ class TransformerClient:
             "max_output_tokens": max_output_tokens,
         }
         return await self._request("POST", "/api/guide_me/generate", json=payload)
+
+
+def _extract_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+        if isinstance(detail, list) and detail:
+            messages: list[str] = []
+            for item in detail:
+                if not isinstance(item, dict):
+                    continue
+                location = item.get("loc")
+                message = item.get("msg")
+                if not isinstance(message, str) or not message.strip():
+                    continue
+                if isinstance(location, list) and location:
+                    path = ".".join(str(part) for part in location)
+                    messages.append(f"{path}: {message.strip()}")
+                else:
+                    messages.append(message.strip())
+            if messages:
+                return "; ".join(messages[:3])
+
+    text = response.text.strip()
+    return text[:300] if text else "no detail returned"
+
+
+def _normalize_transformer_conversation(
+    conversation: dict[str, Any],
+    *,
+    conversation_id: str,
+    enforcement_level: str | None,
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = {
+        "conversation_id": conversation_id,
+        "requirements": {},
+        "enforcement": {
+            "level": enforcement_level or "none",
+            "status": "not_evaluated",
+            "missing_fields": [],
+            "last_evaluated_at": None,
+        },
+    }
+
+    if not isinstance(conversation, dict):
+        return normalized
+
+    raw_requirements = conversation.get("requirements")
+    if isinstance(raw_requirements, dict):
+        normalized_requirements: dict[str, Any] = {}
+        for key, value in raw_requirements.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            status = value.get("status")
+            normalized_requirements[key] = {
+                "value": value.get("value"),
+                "status": _normalize_requirement_status(status),
+                "heuristic_score": _normalize_optional_int(value.get("heuristic_score")),
+                "llm_score": _normalize_optional_int(value.get("llm_score")),
+                "max_score": _normalize_optional_int(value.get("max_score")),
+                "reason": _normalize_optional_str(value.get("reason")),
+                "improvement_hint": _normalize_optional_str(value.get("improvement_hint")),
+            }
+        normalized["requirements"] = normalized_requirements
+
+    raw_enforcement = conversation.get("enforcement")
+    if isinstance(raw_enforcement, dict):
+        normalized["enforcement"] = {
+            "level": _normalize_enforcement_level(raw_enforcement.get("level"), fallback=enforcement_level or "none"),
+            "status": _normalize_enforcement_status(raw_enforcement.get("status")),
+            "missing_fields": _normalize_string_list(raw_enforcement.get("missing_fields")),
+            "last_evaluated_at": _normalize_optional_str(raw_enforcement.get("last_evaluated_at")),
+        }
+
+    return normalized
+
+
+def _normalize_conversation_history_turn(*, transformed_text: Any, assistant_text: Any) -> dict[str, str] | None:
+    normalized_transformed = _normalize_non_empty_str(transformed_text)
+    normalized_assistant = _normalize_non_empty_str(assistant_text)
+    if not normalized_transformed or not normalized_assistant:
+        return None
+    return {
+        "transformed_text": normalized_transformed,
+        "assistant_text": normalized_assistant,
+    }
+
+
+def _normalize_non_empty_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_optional_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_optional_int(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def _normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _normalize_requirement_status(value: Any) -> str:
+    if value == "user_provided":
+        return "present"
+    if value in {"present", "derived", "missing"}:
+        return value
+    return "missing"
+
+
+def _normalize_enforcement_level(value: Any, *, fallback: str) -> str:
+    if value in {"none", "low", "moderate", "full"}:
+        return value
+    return fallback
+
+
+def _normalize_enforcement_status(value: Any) -> str:
+    if value in {"not_evaluated", "passes", "needs_coaching", "blocked"}:
+        return value
+    return "not_evaluated"
