@@ -9,19 +9,32 @@ from app.services.runtime_llm import RuntimeLlmConfig
 
 
 class TransformerClient:
-    async def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
             headers = {
                 "X-Client-Id": settings.prompt_transformer_client_id,
             }
             if settings.prompt_transformer_api_key:
                 headers["Authorization"] = f"Bearer {settings.prompt_transformer_api_key}"
+            if files is not None:
+                headers.pop("Content-Type", None)
 
             response = await client.request(
                 method,
                 f"{settings.prompt_transformer_url}{path}",
                 json=json,
                 params=params,
+                data=data,
+                files=files,
                 headers=headers,
             )
 
@@ -167,6 +180,66 @@ class TransformerClient:
             "max_output_tokens": max_output_tokens,
         }
         return await self._request("POST", "/api/guide_me/generate", json=payload)
+
+    async def get_user_context(self, *, tenant_id: str, user_id_hash: str) -> dict[str, Any]:
+        limits = await self._request(
+            "GET",
+            "/api/rag/limits/user/me",
+            params={"tenant_id": tenant_id, "user_id_hash": user_id_hash},
+        )
+        documents = await self._request(
+            "GET",
+            "/api/rag/user-documents/me",
+            params={"tenant_id": tenant_id, "user_id_hash": user_id_hash},
+        )
+        return {
+            "limits": limits["limits"],
+            "usage": limits["usage"],
+            "collection": documents["collection"],
+            "documents": documents["documents"],
+        }
+
+    async def upload_user_context_document(
+        self,
+        *,
+        tenant_id: str,
+        user_id_hash: str,
+        filename: str,
+        content: bytes,
+        media_type: str | None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/api/rag/user-documents",
+            data={"tenant_id": tenant_id, "user_id_hash": user_id_hash},
+            files={"file": (filename, content, media_type or "application/octet-stream")},
+        )
+
+    async def delete_user_context_document(self, *, tenant_id: str, user_id_hash: str, document_id: str) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            f"/api/rag/user-documents/{document_id}",
+            params={"tenant_id": tenant_id, "user_id_hash": user_id_hash},
+        )
+
+    async def update_user_context_settings(
+        self,
+        *,
+        collection_id: str,
+        retrieval_enabled: bool | None,
+        is_active: bool | None,
+        max_results: int | None,
+    ) -> dict[str, Any]:
+        payload = {
+            key: value
+            for key, value in {
+                "retrieval_enabled": retrieval_enabled,
+                "is_active": is_active,
+                "max_results": max_results,
+            }.items()
+            if value is not None
+        }
+        return await self._request("PATCH", f"/api/rag/collections/{collection_id}", json=payload)
 
 
 def _extract_error_detail(response: httpx.Response) -> str:

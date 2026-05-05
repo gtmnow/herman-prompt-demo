@@ -114,6 +114,43 @@ type TransformerProfileMetadata = {
   personaSource: string | null;
 };
 
+type UserContextState = {
+  settings: {
+    collection_id: string;
+    retrieval_enabled: boolean;
+    is_active: boolean;
+    max_results?: number | null;
+  };
+  limits: {
+    source: string;
+    max_file_bytes: number;
+    max_document_count: number;
+    max_total_bytes: number;
+    max_extracted_text_bytes: number;
+    max_chunks_per_document: number;
+    max_retrieved_chunks: number;
+    max_retrieved_chunks_total: number;
+  };
+  usage: {
+    document_count: number;
+    total_bytes: number;
+    ready_documents: number;
+    processing_documents: number;
+    failed_documents: number;
+    disabled_documents: number;
+  };
+  documents: {
+    id: string;
+    filename: string;
+    media_type: string;
+    size_bytes: number;
+    status: string;
+    status_message?: string | null;
+    uploaded_at: string;
+    processed_at?: string | null;
+  }[];
+};
+
 type RenameTarget =
   | { kind: "conversation"; item: ConversationSummary }
   | { kind: "folder"; item: ConversationFolder };
@@ -177,6 +214,11 @@ export function App() {
   const [guideMeSubmitProgressPercent, setGuideMeSubmitProgressPercent] = useState<number | null>(null);
   const [guideMeAnswer, setGuideMeAnswer] = useState("");
   const [guideMeError, setGuideMeError] = useState<string | null>(null);
+  const [personalContextOpen, setPersonalContextOpen] = useState(false);
+  const [userContext, setUserContext] = useState<UserContextState | null>(null);
+  const [userContextLoading, setUserContextLoading] = useState(false);
+  const [userContextBusy, setUserContextBusy] = useState(false);
+  const [userContextError, setUserContextError] = useState<string | null>(null);
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
   const emptyTranscriptMessage = buildWelcomeMessage(session, enforcementLevel, summaryType, transformerProfile);
@@ -275,6 +317,7 @@ export function App() {
     }
 
     void loadConversationSummaries();
+    void loadUserContext();
   }, [session?.access_token]);
 
   useEffect(() => {
@@ -315,6 +358,114 @@ export function App() {
     } catch (loadError) {
       setGuideMeSession(null);
       setGuideMeError(loadError instanceof Error ? loadError.message : "Unable to load Guide Me session.");
+    }
+  }
+
+  async function loadUserContext() {
+    if (!session) {
+      return;
+    }
+    setUserContextLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/user-context`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to load personal context.");
+        throw new Error(errorMessage);
+      }
+      const payload = (await response.json()) as UserContextState;
+      setUserContext(payload);
+      setUserContextError(null);
+    } catch (contextError) {
+      setUserContextError(contextError instanceof Error ? contextError.message : "Unable to load personal context.");
+      setUserContext(null);
+    } finally {
+      setUserContextLoading(false);
+    }
+  }
+
+  async function uploadUserContextFiles(files: FileList | null) {
+    if (!files || files.length === 0 || !session) {
+      return;
+    }
+    setUserContextBusy(true);
+    setUserContextError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch(`${apiBaseUrl}/api/user-context/documents`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: formData,
+        });
+        if (!response.ok) {
+          const errorMessage = await extractErrorMessage(response, "Unable to upload personal context document.");
+          throw new Error(errorMessage);
+        }
+        const payload = (await response.json()) as UserContextState;
+        setUserContext(payload);
+      }
+    } catch (contextError) {
+      setUserContextError(contextError instanceof Error ? contextError.message : "Unable to upload document.");
+    } finally {
+      setUserContextBusy(false);
+    }
+  }
+
+  async function deleteUserContextDocument(documentId: string) {
+    if (!session) {
+      return;
+    }
+    setUserContextBusy(true);
+    setUserContextError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/user-context/documents/${documentId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to delete personal context document.");
+        throw new Error(errorMessage);
+      }
+      const payload = (await response.json()) as UserContextState;
+      setUserContext(payload);
+    } catch (contextError) {
+      setUserContextError(contextError instanceof Error ? contextError.message : "Unable to delete document.");
+    } finally {
+      setUserContextBusy(false);
+    }
+  }
+
+  async function updateUserContextSettings(nextEnabled: boolean) {
+    if (!session || !userContext) {
+      return;
+    }
+    setUserContextBusy(true);
+    setUserContextError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/user-context/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          retrieval_enabled: nextEnabled,
+          is_active: true,
+        }),
+      });
+      if (!response.ok) {
+        const errorMessage = await extractErrorMessage(response, "Unable to update personal context settings.");
+        throw new Error(errorMessage);
+      }
+      const payload = (await response.json()) as UserContextState;
+      setUserContext(payload);
+    } catch (contextError) {
+      setUserContextError(contextError instanceof Error ? contextError.message : "Unable to update settings.");
+    } finally {
+      setUserContextBusy(false);
     }
   }
 
@@ -1263,6 +1414,7 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
+          onOpenPersonalContext={() => setPersonalContextOpen(true)}
           showFullDemo={launchParams.showFullDemo}
           showDetails={showDetails}
           transformEnabled={transformEnabled}
@@ -1295,6 +1447,7 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
+          onOpenPersonalContext={() => setPersonalContextOpen(true)}
           showFullDemo={launchParams.showFullDemo}
           showDetails={showDetails}
           transformEnabled={transformEnabled}
@@ -1326,6 +1479,10 @@ export function App() {
       <Header
         isMobile={isMobile}
         onOpenSidebar={() => setSidebarCollapsed(false)}
+        onOpenPersonalContext={() => {
+          setPersonalContextOpen(true);
+          void loadUserContext();
+        }}
         showFullDemo={launchParams.showFullDemo}
         showDetails={showDetails}
         transformEnabled={transformEnabled}
@@ -1418,6 +1575,89 @@ export function App() {
           </div>
         </div>
       </div>
+      {personalContextOpen ? (
+        <section className="settings-modal-backdrop" role="presentation" onClick={() => setPersonalContextOpen(false)}>
+          <div className="settings-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2>Personal Context</h2>
+                <p>Add private documents used automatically across conversations.</p>
+              </div>
+              <button className="header-icon-button" type="button" onClick={() => setPersonalContextOpen(false)}>
+                Close
+              </button>
+            </div>
+            {userContextLoading && !userContext ? <p className="muted-panel">Loading personal context…</p> : null}
+            {userContext ? (
+              <>
+                <label className="toggle personal-context-toggle">
+                  <span className="toggle-label">Use my personal context</span>
+                  <button
+                    aria-pressed={userContext.settings.retrieval_enabled}
+                    className={`toggle-switch ${userContext.settings.retrieval_enabled ? "is-on" : ""}`}
+                    type="button"
+                    onClick={() => void updateUserContextSettings(!userContext.settings.retrieval_enabled)}
+                  >
+                    <span className="toggle-thumb" />
+                  </button>
+                </label>
+                <div className="settings-card-grid">
+                  <div className="settings-card">
+                    <h3>Effective Limits</h3>
+                    <p>Source: {userContext.limits.source}</p>
+                    <p>Max file: {formatBytes(userContext.limits.max_file_bytes)}</p>
+                    <p>Max docs: {userContext.limits.max_document_count}</p>
+                    <p>Max storage: {formatBytes(userContext.limits.max_total_bytes)}</p>
+                    <p>Max extracted text: {formatBytes(userContext.limits.max_extracted_text_bytes)}</p>
+                    <p>Max chunks/doc: {userContext.limits.max_chunks_per_document}</p>
+                    <p>Retrieved per answer: {userContext.limits.max_retrieved_chunks}</p>
+                  </div>
+                  <div className="settings-card">
+                    <h3>Usage</h3>
+                    <p>{userContext.usage.document_count} / {userContext.limits.max_document_count} docs</p>
+                    <p>{formatBytes(userContext.usage.total_bytes)} / {formatBytes(userContext.limits.max_total_bytes)}</p>
+                    <p>Ready: {userContext.usage.ready_documents}</p>
+                    <p>Processing: {userContext.usage.processing_documents}</p>
+                    <p>Failed: {userContext.usage.failed_documents}</p>
+                  </div>
+                </div>
+                <label className="settings-upload">
+                  <span>Upload documents</span>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx,.txt,.md,.csv"
+                    multiple
+                    onChange={(event) => void uploadUserContextFiles(event.target.files)}
+                  />
+                </label>
+                <div className="settings-document-list">
+                  {userContext.documents.map((document) => (
+                    <div className="settings-document-row" key={document.id}>
+                      <div>
+                        <strong>{document.filename}</strong>
+                        <div className="muted-line">
+                          {document.status} · {formatBytes(document.size_bytes)}
+                          {document.status_message ? ` · ${document.status_message}` : ""}
+                        </div>
+                      </div>
+                      <button
+                        className="danger-text-button"
+                        type="button"
+                        disabled={userContextBusy}
+                        onClick={() => void deleteUserContextDocument(document.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                  {userContext.documents.length === 0 ? <p className="muted-panel">No personal documents uploaded yet.</p> : null}
+                </div>
+              </>
+            ) : null}
+            {userContextError ? <p className="error-banner">{userContextError}</p> : null}
+          </div>
+        </section>
+      ) : null}
       {feedbackDraft ? (
         <FeedbackModal
           comments={feedbackDraft.comments}
@@ -1504,6 +1744,16 @@ export function App() {
       />
     </main>
   );
+}
+
+function formatBytes(value: number) {
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (value >= 1024) {
+    return `${Math.round(value / 1024)} KB`;
+  }
+  return `${value} B`;
 }
 
 type RenameDialogProps = {

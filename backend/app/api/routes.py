@@ -24,6 +24,12 @@ from app.schemas.chat import (
     GuideMeSessionResponse,
     GuideMeStartRequest,
     SessionBootstrapResponse,
+    UserContextDocument,
+    UserContextLimits,
+    UserContextResponse,
+    UserContextSettingsPayload,
+    UserContextSettingsRequest,
+    UserContextUsage,
 )
 from app.services.chat_service import ChatService
 from app.services.attachment_service import AttachmentService
@@ -246,5 +252,131 @@ async def upload_attachment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except UnsupportedCapabilityError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+def _map_user_context(payload: dict) -> UserContextResponse:
+    collection = payload["collection"]
+    return UserContextResponse(
+        settings=UserContextSettingsPayload(
+            collection_id=collection["id"],
+            retrieval_enabled=collection["retrieval_enabled"],
+            is_active=collection["is_active"],
+            max_results=collection.get("max_results"),
+        ),
+        limits=UserContextLimits(
+            source=payload["limits"]["policy_source"],
+            max_file_bytes=payload["limits"]["max_file_bytes"],
+            max_document_count=payload["limits"]["max_document_count"],
+            max_total_bytes=payload["limits"]["max_total_bytes"],
+            max_extracted_text_bytes=payload["limits"]["max_extracted_text_bytes"],
+            max_chunks_per_document=payload["limits"]["max_chunks_per_document"],
+            max_retrieved_chunks=payload["limits"]["max_retrieved_chunks"],
+            max_retrieved_chunks_total=payload["limits"]["max_retrieved_chunks_total"],
+        ),
+        usage=UserContextUsage(**payload["usage"]),
+        documents=[
+            UserContextDocument(
+                id=item["id"],
+                filename=item["filename"],
+                media_type=item["media_type"],
+                size_bytes=item["size_bytes"],
+                status=item["status"],
+                status_message=item.get("status_message"),
+                uploaded_at=item["uploaded_at"],
+                processed_at=item.get("processed_at"),
+            )
+            for item in payload.get("documents", [])
+        ],
+    )
+
+
+@router.get("/user-context", response_model=UserContextResponse)
+async def get_user_context(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> UserContextResponse:
+    try:
+        payload = await chat_service.transformer_client.get_user_context(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+        )
+        return _map_user_context(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/user-context/documents", response_model=UserContextResponse)
+async def upload_user_context_document(
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> UserContextResponse:
+    try:
+        payload = await chat_service.transformer_client.upload_user_context_document(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+            filename=file.filename or "document",
+            content=await file.read(),
+            media_type=file.content_type,
+        )
+        document_list = await chat_service.transformer_client.get_user_context(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+        )
+        document_list["documents"] = [
+            payload["document"],
+            *[item for item in document_list["documents"] if item["id"] != payload["document"]["id"]],
+        ]
+        document_list["collection"] = payload["collection"]
+        document_list["usage"] = payload["usage"]
+        document_list["limits"] = payload["limits"]
+        return _map_user_context(document_list)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.delete("/user-context/documents/{document_id}", response_model=UserContextResponse)
+async def delete_user_context_document(
+    document_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> UserContextResponse:
+    try:
+        await chat_service.transformer_client.delete_user_context_document(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+            document_id=document_id,
+        )
+        payload = await chat_service.transformer_client.get_user_context(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+        )
+        return _map_user_context(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.patch("/user-context/settings", response_model=UserContextResponse)
+async def update_user_context_settings(
+    payload: UserContextSettingsRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> UserContextResponse:
+    try:
+        current = await chat_service.transformer_client.get_user_context(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+        )
+        await chat_service.transformer_client.update_user_context_settings(
+            collection_id=current["collection"]["id"],
+            retrieval_enabled=payload.retrieval_enabled,
+            is_active=payload.is_active,
+            max_results=payload.max_results,
+        )
+        refreshed = await chat_service.transformer_client.get_user_context(
+            tenant_id=user.tenant_id,
+            user_id_hash=user.user_id_hash,
+        )
+        return _map_user_context(refreshed)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

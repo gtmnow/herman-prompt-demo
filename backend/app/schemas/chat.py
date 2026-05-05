@@ -207,6 +207,57 @@ class ChatResponseMetadata(BaseModel):
     llm: LlmMetadata
 
 
+class UserContextLimits(BaseModel):
+    source: str
+    max_file_bytes: int
+    max_document_count: int
+    max_total_bytes: int
+    max_extracted_text_bytes: int
+    max_chunks_per_document: int
+    max_retrieved_chunks: int
+    max_retrieved_chunks_total: int
+
+
+class UserContextUsage(BaseModel):
+    document_count: int
+    total_bytes: int
+    ready_documents: int
+    processing_documents: int
+    failed_documents: int
+    disabled_documents: int
+
+
+class UserContextDocument(BaseModel):
+    id: str
+    filename: str
+    media_type: str
+    size_bytes: int
+    status: str
+    status_message: str | None = None
+    uploaded_at: str
+    processed_at: str | None = None
+
+
+class UserContextSettingsPayload(BaseModel):
+    collection_id: str
+    retrieval_enabled: bool
+    is_active: bool
+    max_results: int | None = None
+
+
+class UserContextResponse(BaseModel):
+    settings: UserContextSettingsPayload
+    limits: UserContextLimits
+    usage: UserContextUsage
+    documents: list[UserContextDocument] = Field(default_factory=list)
+
+
+class UserContextSettingsRequest(BaseModel):
+    retrieval_enabled: bool | None = None
+    is_active: bool | None = None
+    max_results: int | None = Field(default=None, ge=1, le=20)
+
+
 class GeneratedImagePayload(BaseModel):
     media_type: str = "image/png"
     base64_data: str

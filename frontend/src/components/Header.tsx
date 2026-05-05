@@ -3,6 +3,7 @@ import logoImage from "../../assets/logo.png";
 type HeaderProps = {
   isMobile: boolean;
   onOpenSidebar: () => void;
+  onOpenPersonalContext: () => void;
   showFullDemo: boolean;
   showDetails: boolean;
   transformEnabled: boolean;
@@ -25,6 +26,7 @@ type HeaderProps = {
 export function Header({
   isMobile,
   onOpenSidebar,
+  onOpenPersonalContext,
   showFullDemo,
   showDetails,
   transformEnabled,
@@ -128,6 +130,19 @@ export function Header({
             </label>
           </>
         ) : null}
+        <button
+          aria-label="Open personal context settings"
+          className="header-icon-button"
+          type="button"
+          onClick={onOpenPersonalContext}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path
+              d="M10.7 2.9a1 1 0 0 1 2.6 0l.3 1.5a7.9 7.9 0 0 1 1.7.7l1.3-.8a1 1 0 0 1 1.3.2l1.8 1.8a1 1 0 0 1 .2 1.3l-.8 1.3c.3.5.5 1.1.7 1.7l1.5.3a1 1 0 0 1 .8 1v2.6a1 1 0 0 1-.8 1l-1.5.3a7.8 7.8 0 0 1-.7 1.7l.8 1.3a1 1 0 0 1-.2 1.3l-1.8 1.8a1 1 0 0 1-1.3.2l-1.3-.8a7.9 7.9 0 0 1-1.7.7l-.3 1.5a1 1 0 0 1-1 .8h-2.6a1 1 0 0 1-1-.8l-.3-1.5a7.9 7.9 0 0 1-1.7-.7l-1.3.8a1 1 0 0 1-1.3-.2L3.8 19a1 1 0 0 1-.2-1.3l.8-1.3a7.9 7.9 0 0 1-.7-1.7l-1.5-.3a1 1 0 0 1-.8-1v-2.6a1 1 0 0 1 .8-1l1.5-.3c.2-.6.4-1.2.7-1.7l-.8-1.3a1 1 0 0 1 .2-1.3l1.8-1.8a1 1 0 0 1 1.3-.2l1.3.8c.5-.3 1.1-.5 1.7-.7Zm1.3 6a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2Z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
       </div>
     </header>
   );
