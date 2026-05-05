@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     herman_db_canonical_mode: bool = Field(default=False, alias="HERMAN_DB_CANONICAL_MODE")
     herman_db_version_table: str = Field(default="alembic_version", alias="HERMAN_DB_VERSION_TABLE")
-    herman_db_allowed_revisions_raw: str = Field(default="20260504_0006,20260504_0007,20260504_0008", alias="HERMAN_DB_ALLOWED_REVISIONS")
+    herman_db_allowed_revisions_raw: str = Field(default="20260504_0006,20260504_0007,20260504_0008,20260504_0009,20260505_0010", alias="HERMAN_DB_ALLOWED_REVISIONS")
     cors_allowed_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ALLOWED_ORIGINS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
