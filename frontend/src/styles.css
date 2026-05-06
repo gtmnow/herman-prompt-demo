@@ -261,12 +261,17 @@ input {
 .conversation-settings-button:hover {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
   background: color-mix(in srgb, var(--panel-soft) 70%, var(--panel));
-  color: var(--accent);
 }
 
 .conversation-settings-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.conversation-settings-icon-image {
+  display: block;
+  width: 28px;
+  height: 28px;
 }
 
 .conversation-delete-all-button {
@@ -560,6 +565,21 @@ input {
   height: 16px;
 }
 
+.conversation-icon-mask {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-image: var(--icon-mask-url);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-image: var(--icon-mask-url);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
+
 .conversation-folder-conversations {
   padding-left: 12px;
   padding-right: 10px;
@@ -589,6 +609,11 @@ input {
 }
 
 .conversation-item.is-nested .conversation-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.conversation-item.is-nested .conversation-icon-mask {
   width: 14px;
   height: 14px;
 }

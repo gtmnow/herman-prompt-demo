@@ -1,4 +1,13 @@
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
+import closedFolderIcon from "../../assets/folder-closed.svg";
+import openFolderIcon from "../../assets/folder-open.svg";
+import conversationFileIcon from "../../assets/conversation-file.svg";
+import downloadIcon from "../../assets/download.svg";
+import settingsGearIcon from "../../assets/settings-gear.svg";
+import sidebarArrowLeftIcon from "../../assets/sidebar-arrow-left.svg";
+import sidebarArrowRightIcon from "../../assets/sidebar-arrow-right.svg";
+import trashIcon from "../../assets/trash.svg";
 
 export type ConversationSummary = {
   id: string;
@@ -86,7 +95,7 @@ export function ConversationSidebar({
       <div className="conversation-sidebar-header">
         {collapsed ? (
           <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
-            <SidebarArrowIcon direction="right" />
+            <SvgMaskIcon assetUrl={sidebarArrowRightIcon} className="sidebar-arrow-icon" />
           </button>
         ) : (
           <>
@@ -95,7 +104,7 @@ export function ConversationSidebar({
               New Chat
             </button>
             <button className="sidebar-toggle-button" type="button" onClick={onToggleCollapsed}>
-              <SidebarArrowIcon direction="left" />
+              <SvgMaskIcon assetUrl={sidebarArrowLeftIcon} className="sidebar-arrow-icon" />
             </button>
           </>
         )}
@@ -143,7 +152,7 @@ export function ConversationSidebar({
                         type="button"
                         onClick={() => toggleFolder(folder.id)}
                       >
-                        {openFolderIds[folder.id] ? <OpenFolderIcon /> : <ClosedFolderIcon />}
+                        <SvgMaskIcon assetUrl={openFolderIds[folder.id] ? openFolderIcon : closedFolderIcon} />
                       </button>
                       <button
                         className="conversation-folder-name"
@@ -160,7 +169,7 @@ export function ConversationSidebar({
                         type="button"
                         onClick={() => onOpenDeleteFolder(folder)}
                       >
-                        <TrashIcon />
+                        <SvgMaskIcon assetUrl={trashIcon} />
                       </button>
                     </div>
                     {openFolderIds[folder.id] ? (
@@ -199,7 +208,7 @@ export function ConversationSidebar({
                 type="button"
                 onClick={onOpenSettings}
               >
-                <OutlineGearIcon />
+                <img alt="" aria-hidden="true" className="conversation-settings-icon-image" src={settingsGearIcon} />
               </button>
               {unfiledConversations.length > 0 ? (
                 <button
@@ -209,7 +218,7 @@ export function ConversationSidebar({
                   onClick={onDeleteAllConversations}
                 >
                   <span>Delete all unfiled conversations</span>
-                  <TrashIcon />
+                  <SvgMaskIcon assetUrl={trashIcon} />
                 </button>
               ) : null}
             </div>
@@ -217,44 +226,6 @@ export function ConversationSidebar({
         </>
       ) : null}
     </aside>
-  );
-}
-
-function OutlineGearIcon() {
-  return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M12 2.75c.42 0 .79.28.9.69l.52 1.95c.55.14 1.08.35 1.57.64l1.78-.96a.95.95 0 0 1 1.13.16l1.87 1.87c.3.3.37.76.16 1.13l-.96 1.78c.29.49.5 1.02.64 1.57l1.95.52c.41.11.69.48.69.9v2.64c0 .42-.28.79-.69.9l-1.95.52a7.1 7.1 0 0 1-.64 1.57l.96 1.78a.95.95 0 0 1-.16 1.13l-1.87 1.87a.95.95 0 0 1-1.13.16l-1.78-.96a7.1 7.1 0 0 1-1.57.64l-.52 1.95a.93.93 0 0 1-.9.69H10.7a.93.93 0 0 1-.9-.69l-.52-1.95a7.1 7.1 0 0 1-1.57-.64l-1.78.96a.95.95 0 0 1-1.13-.16L2.93 18.8a.95.95 0 0 1-.16-1.13l.96-1.78a7.1 7.1 0 0 1-.64-1.57l-1.95-.52a.93.93 0 0 1-.69-.9V10.3c0-.42.28-.79.69-.9l1.95-.52c.14-.55.35-1.08.64-1.57l-.96-1.78a.95.95 0 0 1 .16-1.13L4.8 2.53a.95.95 0 0 1 1.13-.16l1.78.96c.49-.29 1.02-.5 1.57-.64l.52-1.95c.11-.41.48-.69.9-.69H12Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.6"
-      />
-      <circle cx="12" cy="12" r="3.15" fill="none" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function SidebarArrowIcon({ direction }: { direction: "left" | "right" }) {
-  return (
-    <svg aria-hidden="true" className="sidebar-arrow-icon" viewBox="0 0 24 24">
-      <path
-        d={direction === "left" ? "M15.5 5.5 8.5 12l7 6.5" : "M8.5 5.5 15.5 12l-7 6.5"}
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.2"
-      />
-      <path
-        d={direction === "left" ? "M9.5 12h8" : "M6.5 12h8"}
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="2.2"
-      />
-    </svg>
   );
 }
 
@@ -318,7 +289,7 @@ function ConversationCard({
               onMoveConversation(conversation);
             }}
           >
-            <FileConversationIcon />
+            <SvgMaskIcon assetUrl={conversationFileIcon} />
           </button>
           <button
             aria-label={`Export ${conversation.title}`}
@@ -330,7 +301,7 @@ function ConversationCard({
               onExportConversation(conversation.id);
             }}
           >
-            <DownloadIcon />
+            <SvgMaskIcon assetUrl={downloadIcon} />
           </button>
           <button
             aria-label={`Delete ${conversation.title}`}
@@ -342,7 +313,7 @@ function ConversationCard({
               onDeleteConversation(conversation.id);
             }}
           >
-            <TrashIcon />
+            <SvgMaskIcon assetUrl={trashIcon} />
           </button>
         </div>
       </div>
@@ -350,93 +321,16 @@ function ConversationCard({
   );
 }
 
-function FileConversationIcon() {
-  return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M4.3 9.8c0-.8.7-1.5 1.5-1.5h4.1l1.4 1.4h6.9c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5H5.8c-.8 0-1.5-.7-1.5-1.5V9.8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M12 3.1v7m0 0 2.7-2.7M12 10.1 9.3 7.4"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.2"
-      />
-    </svg>
-  );
-}
+function SvgMaskIcon({ assetUrl, className }: { assetUrl: string; className?: string }) {
+  const style = {
+    "--icon-mask-url": `url("${assetUrl}")`,
+  } as CSSProperties;
 
-function OpenFolderIcon() {
   return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M4.3 8.2c0-.8.7-1.4 1.4-1.4H10l1.5 1.4h6.6c.9 0 1.5.7 1.4 1.5"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M6.7 10.8h12.1c.9 0 1.5.8 1.3 1.6l-1 4.1c-.2.7-.8 1.2-1.5 1.2H5.8c-.9 0-1.5-.9-1.1-1.8l1.1-3.1c.2-.6.8-1 1.4-1Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
-
-function ClosedFolderIcon() {
-  return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M4.4 7.7c0-.8.7-1.5 1.5-1.5h4.1l1.5 1.4h6.7c.8 0 1.5.7 1.5 1.5v7.2c0 .8-.7 1.5-1.5 1.5H5.9c-.8 0-1.5-.7-1.5-1.5V7.7Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
-
-function DownloadIcon() {
-  return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M12 4v9m0 0 3.4-3.4M12 13 8.6 9.6M5 15.5v2.2c0 .7.6 1.3 1.3 1.3h11.4c.7 0 1.3-.6 1.3-1.3v-2.2"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
-      <path
-        d="M4.5 7h15M9.2 3.8h5.6M9 10.2v6.3m6-6.3v6.3M7.8 20h8.4c.7 0 1.3-.6 1.3-1.3L18 7H6l.5 11.7c0 .7.6 1.3 1.3 1.3Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
+    <span
+      aria-hidden="true"
+      className={className ? `conversation-icon-mask ${className}` : "conversation-icon-mask conversation-icon"}
+      style={style}
+    />
   );
 }
