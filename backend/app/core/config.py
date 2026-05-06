@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     prompt_transformer_url: str = Field(default="http://localhost:8001", alias="PROMPT_TRANSFORMER_URL")
     prompt_transformer_api_key: str = Field(default="", alias="PROMPT_TRANSFORMER_API_KEY")
     prompt_transformer_client_id: str = Field(default="hermanprompt", alias="PROMPT_TRANSFORMER_CLIENT_ID")
+    prompt_transformer_timeout_seconds: float = Field(
+        default=90.0,
+        alias="PROMPT_TRANSFORMER_TIMEOUT_SECONDS",
+    )
     shared_secret_vault_master_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

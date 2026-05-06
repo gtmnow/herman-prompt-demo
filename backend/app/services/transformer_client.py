@@ -19,7 +19,7 @@ class TransformerClient:
         data: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=settings.prompt_transformer_timeout_seconds) as client:
             headers = {
                 "X-Client-Id": settings.prompt_transformer_client_id,
             }
@@ -28,15 +28,24 @@ class TransformerClient:
             if files is not None:
                 headers.pop("Content-Type", None)
 
-            response = await client.request(
-                method,
-                f"{settings.prompt_transformer_url}{path}",
-                json=json,
-                params=params,
-                data=data,
-                files=files,
-                headers=headers,
-            )
+            try:
+                response = await client.request(
+                    method,
+                    f"{settings.prompt_transformer_url}{path}",
+                    json=json,
+                    params=params,
+                    data=data,
+                    files=files,
+                    headers=headers,
+                )
+            except httpx.TimeoutException as exc:
+                raise RuntimeError(
+                    f"Prompt Transformer request timed out after {settings.prompt_transformer_timeout_seconds:g} seconds."
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(
+                    f"Prompt Transformer request failed before a response was received: {exc}"
+                ) from exc
 
         if response.status_code >= 400:
             detail = _extract_error_detail(response)

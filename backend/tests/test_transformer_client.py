@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -70,6 +71,25 @@ class TransformerClientHelpersTests(unittest.TestCase):
             _extract_error_detail(response),
             "body.conversation.enforcement: Field required",
         )
+
+
+class TransformerClientTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_request_handles_timeout_errors(self) -> None:
+        async_client = AsyncMock()
+        async_client.__aenter__.return_value = async_client
+        async_client.request.side_effect = httpx.TimeoutException("timed out")
+
+        with patch("app.services.transformer_client.httpx.AsyncClient", return_value=async_client):
+            with patch(
+                "app.services.transformer_client.settings.prompt_transformer_timeout_seconds",
+                7.5,
+            ):
+                client = TransformerClient()
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    r"Prompt Transformer request timed out after 7\.5 seconds",
+                ):
+                    await client._request("GET", "/health")
 
 
 if __name__ == "__main__":
