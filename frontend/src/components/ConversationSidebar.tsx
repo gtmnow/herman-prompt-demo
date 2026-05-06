@@ -31,6 +31,7 @@ type ConversationSidebarProps = {
   onDeleteConversation: (conversationId: string) => void;
   onDeleteAllConversations: () => void;
   onExportConversation: (conversationId: string) => void;
+  onOpenSettings: () => void;
   onOpenConversationRename: (conversation: ConversationSummary) => void;
   onOpenFolderRename: (folder: ConversationFolder) => void;
   onOpenMoveConversation: (conversation: ConversationSummary) => void;
@@ -52,6 +53,7 @@ export function ConversationSidebar({
   onDeleteConversation,
   onDeleteAllConversations,
   onExportConversation,
+  onOpenSettings,
   onOpenConversationRename,
   onOpenFolderRename,
   onOpenMoveConversation,
@@ -188,22 +190,49 @@ export function ConversationSidebar({
               )}
             </div>
           </div>
-          {unfiledConversations.length > 0 ? (
-            <div className="conversation-sidebar-footer">
+          <div className="conversation-sidebar-footer">
+            <div className="conversation-sidebar-footer-actions">
               <button
-                className="conversation-delete-all-button"
+                aria-label="Open personal settings"
+                className="conversation-settings-button"
                 disabled={actionBusy}
                 type="button"
-                onClick={onDeleteAllConversations}
+                onClick={onOpenSettings}
               >
-                <span>Delete all unfiled conversations</span>
-                <TrashIcon />
+                <OutlineGearIcon />
               </button>
+              {unfiledConversations.length > 0 ? (
+                <button
+                  className="conversation-delete-all-button"
+                  disabled={actionBusy}
+                  type="button"
+                  onClick={onDeleteAllConversations}
+                >
+                  <span>Delete all unfiled conversations</span>
+                  <TrashIcon />
+                </button>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </>
       ) : null}
     </aside>
+  );
+}
+
+function OutlineGearIcon() {
+  return (
+    <svg aria-hidden="true" className="conversation-icon" viewBox="0 0 24 24">
+      <path
+        d="M12 2.75c.42 0 .79.28.9.69l.52 1.95c.55.14 1.08.35 1.57.64l1.78-.96a.95.95 0 0 1 1.13.16l1.87 1.87c.3.3.37.76.16 1.13l-.96 1.78c.29.49.5 1.02.64 1.57l1.95.52c.41.11.69.48.69.9v2.64c0 .42-.28.79-.69.9l-1.95.52a7.1 7.1 0 0 1-.64 1.57l.96 1.78a.95.95 0 0 1-.16 1.13l-1.87 1.87a.95.95 0 0 1-1.13.16l-1.78-.96a7.1 7.1 0 0 1-1.57.64l-.52 1.95a.93.93 0 0 1-.9.69H10.7a.93.93 0 0 1-.9-.69l-.52-1.95a7.1 7.1 0 0 1-1.57-.64l-1.78.96a.95.95 0 0 1-1.13-.16L2.93 18.8a.95.95 0 0 1-.16-1.13l.96-1.78a7.1 7.1 0 0 1-.64-1.57l-1.95-.52a.93.93 0 0 1-.69-.9V10.3c0-.42.28-.79.69-.9l1.95-.52c.14-.55.35-1.08.64-1.57l-.96-1.78a.95.95 0 0 1 .16-1.13L4.8 2.53a.95.95 0 0 1 1.13-.16l1.78.96c.49-.29 1.02-.5 1.57-.64l.52-1.95c.11-.41.48-.69.9-.69H12Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+      <circle cx="12" cy="12" r="3.15" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
   );
 }
 

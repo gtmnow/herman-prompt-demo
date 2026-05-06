@@ -234,12 +234,48 @@ input {
   border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
 }
 
+.conversation-sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.conversation-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.conversation-settings-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+  background: color-mix(in srgb, var(--panel-soft) 70%, var(--panel));
+  color: var(--accent);
+}
+
+.conversation-settings-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .conversation-delete-all-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   width: 100%;
+  flex: 1;
   margin: 0;
   padding: 10px 12px;
   border: 1px solid transparent;
@@ -338,6 +374,58 @@ input {
 
 .settings-card p {
   margin: 6px 0 0;
+}
+
+.settings-section-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.settings-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-toggle-row {
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+
+.theme-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-selector-button {
+  min-width: 84px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.theme-selector-button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--text);
 }
 
 .personal-context-toggle {
@@ -559,9 +647,8 @@ input {
 .topbar-controls {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
-  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
@@ -652,6 +739,7 @@ input {
 .score-chip-value {
   font-size: 1rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .score-chip-status {
@@ -1616,6 +1704,15 @@ input {
     flex-direction: column;
   }
 
+  .settings-card-grid,
+  .settings-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-section-header {
+    margin-bottom: 12px;
+  }
+
 }
 
 @media (max-width: 860px) {
@@ -1705,6 +1802,19 @@ input {
   .toggle {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .conversation-sidebar-footer-actions {
+    flex-wrap: wrap;
+  }
+
+  .conversation-settings-button {
+    width: 100%;
+  }
+
+  .theme-selector {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .composer-input {

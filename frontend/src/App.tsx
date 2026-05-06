@@ -172,6 +172,10 @@ export function App() {
   const [summaryType, setSummaryType] = useState<number | null>(launchParams.summaryType);
   const [enforcementLevel, setEnforcementLevel] = useState<EnforcementLevel>("none");
   const [theme, setTheme] = useState<ThemeMode>(launchParams.theme);
+  const [showHeaderScores, setShowHeaderScores] = useState(() => {
+    const storedValue = window.localStorage.getItem("herman-prompt.show-header-scores");
+    return storedValue === null ? true : storedValue === "true";
+  });
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -296,6 +300,10 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    window.localStorage.setItem("herman-prompt.show-header-scores", String(showHeaderScores));
+  }, [showHeaderScores]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 860px)");
@@ -1007,6 +1015,11 @@ export function App() {
     }));
   }
 
+  function openPersonalSettings() {
+    setPersonalContextOpen(true);
+    void loadUserContext();
+  }
+
   async function loadConversationSummaries() {
     if (!session) {
       return;
@@ -1414,24 +1427,13 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
-          onOpenPersonalContext={() => setPersonalContextOpen(true)}
-          showFullDemo={launchParams.showFullDemo}
-          showDetails={showDetails}
-          transformEnabled={transformEnabled}
-          summaryType={summaryType}
-          defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
-          enforcementLevel={enforcementLevel}
           scoring={transformerScoring ? {
             initialLlmScore: transformerScoring.initial_llm_score,
             initialScore: transformerScoring.initial_score,
             finalLlmScore: transformerScoring.final_llm_score,
             finalScore: transformerScoring.final_score,
           } : null}
-          theme={theme}
-          onToggleDetails={() => setShowDetails((value) => !value)}
-          onToggleTransform={() => resetConversation(!transformEnabled)}
-          onChangeSummaryType={applySummaryType}
-          onChangeEnforcementLevel={applyEnforcementLevel}
+          showHeaderScores={showHeaderScores}
         />
         <section className="blocking-state">
           <h1>Initializing session</h1>
@@ -1447,24 +1449,13 @@ export function App() {
         <Header
           isMobile={isMobile}
           onOpenSidebar={() => setSidebarCollapsed(false)}
-          onOpenPersonalContext={() => setPersonalContextOpen(true)}
-          showFullDemo={launchParams.showFullDemo}
-          showDetails={showDetails}
-          transformEnabled={transformEnabled}
-          summaryType={summaryType}
-          defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
-          enforcementLevel={enforcementLevel}
           scoring={transformerScoring ? {
             initialLlmScore: transformerScoring.initial_llm_score,
             initialScore: transformerScoring.initial_score,
             finalLlmScore: transformerScoring.final_llm_score,
             finalScore: transformerScoring.final_score,
           } : null}
-          theme={theme}
-          onToggleDetails={() => setShowDetails((value) => !value)}
-          onToggleTransform={() => resetConversation(!transformEnabled)}
-          onChangeSummaryType={applySummaryType}
-          onChangeEnforcementLevel={applyEnforcementLevel}
+          showHeaderScores={showHeaderScores}
         />
         <section className="blocking-state">
           <h1>{getBlockingStateTitle(sessionError)}</h1>
@@ -1479,27 +1470,13 @@ export function App() {
       <Header
         isMobile={isMobile}
         onOpenSidebar={() => setSidebarCollapsed(false)}
-        onOpenPersonalContext={() => {
-          setPersonalContextOpen(true);
-          void loadUserContext();
-        }}
-        showFullDemo={launchParams.showFullDemo}
-        showDetails={showDetails}
-        transformEnabled={transformEnabled}
-        summaryType={summaryType}
-        defaultProfileLabel={formatDefaultProfileLabel(transformerProfile, session, summaryType)}
-        enforcementLevel={enforcementLevel}
         scoring={transformerScoring ? {
           initialLlmScore: transformerScoring.initial_llm_score,
           initialScore: transformerScoring.initial_score,
           finalLlmScore: transformerScoring.final_llm_score,
           finalScore: transformerScoring.final_score,
         } : null}
-        theme={theme}
-        onToggleDetails={() => setShowDetails((value) => !value)}
-        onToggleTransform={() => resetConversation(!transformEnabled)}
-        onChangeSummaryType={applySummaryType}
-        onChangeEnforcementLevel={applyEnforcementLevel}
+        showHeaderScores={showHeaderScores}
       />
       <div className="chat-layout">
         {isMobile && !sidebarCollapsed ? (
@@ -1521,6 +1498,7 @@ export function App() {
           onDeleteAllConversations={deleteAllConversations}
           onDeleteConversation={deleteConversation}
           onExportConversation={exportConversation}
+          onOpenSettings={openPersonalSettings}
           onOpenConversationRename={(conversation) => {
             setRenameTarget({ kind: "conversation", item: conversation });
             setRenameValue(conversation.title);
@@ -1580,8 +1558,8 @@ export function App() {
           <div className="settings-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="settings-modal-header">
               <div>
-                <h2>Personal Context</h2>
-                <p>Add private documents used automatically across conversations.</p>
+                <h2>Personal Settings</h2>
+                <p>Manage your private context and the controls that shape the HermanPrompt workspace.</p>
               </div>
               <button className="header-icon-button" type="button" onClick={() => setPersonalContextOpen(false)}>
                 Close
@@ -1590,6 +1568,109 @@ export function App() {
             {userContextLoading && !userContext ? <p className="muted-panel">Loading personal context…</p> : null}
             {userContext ? (
               <>
+                <div className="settings-card">
+                  <div className="settings-section-header">
+                    <div>
+                      <h3>Workspace Settings</h3>
+                      <p>Choose your prompt profile, coaching behavior, display preferences, and header score visibility.</p>
+                    </div>
+                  </div>
+                  <div className="settings-control-grid">
+                    <label className="settings-field">
+                      <span className="profile-picker-label">Type</span>
+                      <select
+                        aria-label="Select demo profile type"
+                        className="profile-picker-select"
+                        value={summaryType ?? ""}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          applySummaryType(nextValue ? Number(nextValue) : null);
+                        }}
+                      >
+                        <option value="">{formatDefaultProfileLabel(transformerProfile, session, summaryType)}</option>
+                        {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => (
+                          <option key={value} value={value}>
+                            Type {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="settings-field">
+                      <span className="profile-picker-label">Coaching level</span>
+                      <select
+                        aria-label="Select prompt enforcement level"
+                        className="profile-picker-select"
+                        value={enforcementLevel}
+                        onChange={(event) =>
+                          applyEnforcementLevel(event.target.value as "none" | "low" | "moderate" | "full")
+                        }
+                      >
+                        <option value="none">None</option>
+                        <option value="low">Low</option>
+                        <option value="moderate">Moderate</option>
+                        <option value="full">Full</option>
+                      </select>
+                    </label>
+                    {launchParams.showFullDemo ? (
+                      <>
+                        <label className="toggle settings-toggle-row">
+                          <span className="toggle-label">Show transformation</span>
+                          <button
+                            aria-pressed={showDetails}
+                            className={`toggle-switch ${showDetails ? "is-on" : ""}`}
+                            type="button"
+                            onClick={() => setShowDetails((value) => !value)}
+                          >
+                            <span className="toggle-thumb" />
+                          </button>
+                        </label>
+                        <label className="toggle settings-toggle-row">
+                          <span className="toggle-label">Use transformer</span>
+                          <button
+                            aria-pressed={transformEnabled}
+                            className={`toggle-switch ${transformEnabled ? "is-on" : ""}`}
+                            type="button"
+                            onClick={() => resetConversation(!transformEnabled)}
+                          >
+                            <span className="toggle-thumb" />
+                          </button>
+                        </label>
+                      </>
+                    ) : null}
+                    <div className="settings-field">
+                      <span className="profile-picker-label">Theme</span>
+                      <div className="theme-selector" role="group" aria-label="Select theme">
+                        <button
+                          aria-pressed={theme === "light"}
+                          className={`theme-selector-button ${theme === "light" ? "is-active" : ""}`}
+                          type="button"
+                          onClick={() => setTheme("light")}
+                        >
+                          Light
+                        </button>
+                        <button
+                          aria-pressed={theme === "dark"}
+                          className={`theme-selector-button ${theme === "dark" ? "is-active" : ""}`}
+                          type="button"
+                          onClick={() => setTheme("dark")}
+                        >
+                          Dark
+                        </button>
+                      </div>
+                    </div>
+                    <label className="toggle settings-toggle-row">
+                      <span className="toggle-label">Show scores in header</span>
+                      <button
+                        aria-pressed={showHeaderScores}
+                        className={`toggle-switch ${showHeaderScores ? "is-on" : ""}`}
+                        type="button"
+                        onClick={() => setShowHeaderScores((value) => !value)}
+                      >
+                        <span className="toggle-thumb" />
+                      </button>
+                    </label>
+                  </div>
+                </div>
                 <label className="toggle personal-context-toggle">
                   <span className="toggle-label">Use my personal context</span>
                   <button
