@@ -160,10 +160,12 @@ function createConversationId() {
 }
 
 const GUIDE_ME_SUBMIT_MIN_BUSY_MS = 900;
+const MOBILE_BREAKPOINT = "(max-width: 860px)";
+const MOBILE_DISCLAIMER_ACK_KEY = "herman-prompt.mobile-disclaimer-acknowledged";
 
 export function App() {
   const launchParams = getLaunchParams(window.location.search);
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_BREAKPOINT).matches);
   const [session, setSession] = useState<SessionBootstrap | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -186,7 +188,7 @@ export function App() {
   const [turns, setTurns] = useState<TranscriptTurn[]>([]);
   const [unfiledConversations, setUnfiledConversations] = useState<ConversationSummary[]>([]);
   const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>([]);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia("(max-width: 860px)").matches);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia(MOBILE_BREAKPOINT).matches);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationActionBusy, setConversationActionBusy] = useState(false);
@@ -219,6 +221,10 @@ export function App() {
   const [guideMeAnswer, setGuideMeAnswer] = useState("");
   const [guideMeError, setGuideMeError] = useState<string | null>(null);
   const [personalContextOpen, setPersonalContextOpen] = useState(false);
+  const [disclaimerAcknowledged, setDisclaimerAcknowledged] = useState(() => {
+    return window.localStorage.getItem(MOBILE_DISCLAIMER_ACK_KEY) === "true";
+  });
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
   const [userContext, setUserContext] = useState<UserContextState | null>(null);
   const [userContextLoading, setUserContextLoading] = useState(false);
   const [userContextBusy, setUserContextBusy] = useState(false);
@@ -306,7 +312,7 @@ export function App() {
   }, [showHeaderScores]);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 860px)");
+    const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT);
     const syncViewport = (matches: boolean) => {
       setIsMobile(matches);
       setSidebarCollapsed(matches);
@@ -318,6 +324,17 @@ export function App() {
     mediaQuery.addEventListener("change", listener);
     return () => mediaQuery.removeEventListener("change", listener);
   }, []);
+
+  useEffect(() => {
+    if (isMobile && !disclaimerAcknowledged) {
+      setShowDisclaimerModal(true);
+      return;
+    }
+
+    if (!isMobile) {
+      setShowDisclaimerModal(false);
+    }
+  }, [disclaimerAcknowledged, isMobile]);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -527,6 +544,11 @@ export function App() {
   }
 
   function openGuideMe(sourcePrompt?: string) {
+    if (isMobile) {
+      setSidebarCollapsed(true);
+      setPersonalContextOpen(false);
+    }
+
     if (feedbackDraft) {
       setTurns((current) =>
         current.map((turn) =>
@@ -1016,8 +1038,18 @@ export function App() {
   }
 
   function openPersonalSettings() {
+    if (isMobile) {
+      setSidebarCollapsed(true);
+      setGuideMeOpen(false);
+    }
     setPersonalContextOpen(true);
     void loadUserContext();
+  }
+
+  function acknowledgeDisclaimer() {
+    window.localStorage.setItem(MOBILE_DISCLAIMER_ACK_KEY, "true");
+    setDisclaimerAcknowledged(true);
+    setShowDisclaimerModal(false);
   }
 
   async function loadConversationSummaries() {
@@ -1546,13 +1578,46 @@ export function App() {
             }
             onSubmit={handleSubmit}
           />
-          <div className="app-disclaimer">
-            HermanScience is not responsible for the accuracy or confidentiality of information provided by the AI.
-            This platform is not designed to offer professional, legal, medical or other advice. Please consult
-            with the appropriate experts for this type of advice.
-          </div>
+          {isMobile ? (
+            <div className="app-disclaimer app-disclaimer-compact">
+              <button className="app-disclaimer-link" type="button" onClick={() => setShowDisclaimerModal(true)}>
+                Important disclaimer
+              </button>
+            </div>
+          ) : (
+            <div className="app-disclaimer">
+              HermanScience is not responsible for the accuracy or confidentiality of information provided by the AI.
+              This platform is not designed to offer professional, legal, medical or other advice. Please consult
+              with the appropriate experts for this type of advice.
+            </div>
+          )}
         </div>
       </div>
+      {showDisclaimerModal ? (
+        <div className="modal-backdrop modal-backdrop-elevated" role="presentation">
+          <section aria-modal="true" className="feedback-modal legal-notice-modal" role="dialog">
+            <div className="feedback-modal-header">
+              <div>
+                <div className="message-label">Important Notice</div>
+                <h2 className="feedback-modal-title">Before you continue</h2>
+              </div>
+            </div>
+            <p className="conversation-modal-copy">
+              HermanScience is not responsible for the accuracy or confidentiality of information provided by the AI.
+              This platform is not designed to offer professional, legal, medical or other advice. Please consult with
+              the appropriate experts for this type of advice.
+            </p>
+            <div className="feedback-modal-actions">
+              <button className="feedback-button" type="button" onClick={() => setShowDisclaimerModal(false)}>
+                Dismiss
+              </button>
+              <button className="send-button" type="button" onClick={acknowledgeDisclaimer}>
+                I understand
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {personalContextOpen ? (
         <section className="settings-modal-backdrop" role="presentation" onClick={() => setPersonalContextOpen(false)}>
           <div className="settings-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
@@ -1561,7 +1626,7 @@ export function App() {
                 <h2>Personal Settings</h2>
                 <p>Manage your private context and the controls that shape the HermanPrompt workspace.</p>
               </div>
-              <button className="header-icon-button" type="button" onClick={() => setPersonalContextOpen(false)}>
+              <button className="modal-close" type="button" onClick={() => setPersonalContextOpen(false)}>
                 Close
               </button>
             </div>

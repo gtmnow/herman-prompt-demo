@@ -326,7 +326,7 @@ input {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 30;
+  z-index: 60;
 }
 
 .settings-modal {
@@ -864,6 +864,7 @@ input {
 .guide-me-score-chip {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
@@ -1510,6 +1511,21 @@ input {
   text-align: center;
 }
 
+.app-disclaimer-compact {
+  margin-top: -4px;
+  padding-bottom: 0;
+}
+
+.app-disclaimer-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .send-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1535,6 +1551,11 @@ input {
   place-items: center;
   padding: 18px;
   background: rgba(10, 12, 16, 0.52);
+  z-index: 50;
+}
+
+.modal-backdrop-elevated {
+  z-index: 70;
 }
 
 .feedback-modal {
@@ -1645,6 +1666,10 @@ input {
   margin-top: 18px;
 }
 
+.legal-notice-modal {
+  width: min(520px, 100%);
+}
+
 .danger-button {
   color: #fff;
   background: color-mix(in srgb, var(--danger) 82%, transparent);
@@ -1672,16 +1697,42 @@ input {
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 14px;
-    padding: 14px;
+    gap: 10px;
+    padding: 12px 14px;
   }
 
   .topbar-controls {
     width: 100%;
-    justify-content: flex-start;
+    justify-content: stretch;
     gap: 12px 14px;
+  }
+
+  .topbar-brand-group {
+    gap: 10px;
+  }
+
+  .brand-logo {
+    width: min(58vw, 280px);
+  }
+
+  .mobile-sidebar-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .score-chip {
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+  }
+
+  .score-chip-label {
+    font-size: 0.78rem;
+  }
+
+  .score-chip-value {
+    font-size: 0.95rem;
   }
 
   .toggle-label,
@@ -1693,6 +1744,7 @@ input {
     grid-template-columns: 1fr;
     gap: 12px;
     padding: 14px;
+    border-radius: 20px;
   }
 
   .guide-me-panel-header,
@@ -1709,7 +1761,8 @@ input {
   .composer-actions {
     width: 100%;
     justify-content: space-between;
-    align-items: center;
+    align-items: stretch;
+    flex-wrap: wrap;
   }
 
   .send-button {
@@ -1717,7 +1770,7 @@ input {
   }
 
   .app-disclaimer {
-    margin-top: -10px;
+    margin-top: -6px;
     padding: 0 4px 2px;
     font-size: 0.7rem;
     line-height: 1.35;
@@ -1736,6 +1789,49 @@ input {
 
   .settings-section-header {
     margin-bottom: 12px;
+  }
+
+  .guide-me-preview-header,
+  .guide-me-preview-title-row,
+  .guide-me-confirm-actions {
+    align-items: stretch;
+  }
+
+  .guide-me-preview-header,
+  .guide-me-preview-title-row,
+  .guide-me-busy-status-row {
+    flex-direction: column;
+  }
+
+  .guide-me-actions-status {
+    width: 100%;
+    margin-right: 0;
+    grid-template-columns: auto 1fr;
+  }
+
+  .guide-me-actions-progress-track {
+    grid-column: 1 / -1;
+  }
+
+  .feedback-modal,
+  .guide-me-panel,
+  .settings-modal {
+    width: 100%;
+    max-height: min(88dvh, 760px);
+  }
+
+  .settings-modal {
+    padding: 20px 18px;
+    border-radius: 22px;
+  }
+
+  .settings-modal-header {
+    align-items: flex-start;
+  }
+
+  .settings-document-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
 }
@@ -1801,17 +1897,26 @@ input {
   .message-transform {
     width: 100%;
   }
+
+  .composer-shell {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 @media (max-width: 480px) {
-  .brand-lockup {
-    font-size: clamp(1.1rem, 8vw, 1.5rem);
+  .topbar {
+    padding: 10px 12px;
+    border-radius: 16px;
   }
 
   .topbar-controls {
     display: grid;
     grid-template-columns: 1fr;
     align-items: start;
+  }
+
+  .brand-logo {
+    width: min(54vw, 230px);
   }
 
   .profile-picker {
@@ -1842,11 +1947,48 @@ input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .conversation-sidebar.is-mobile {
+    width: min(92vw, 360px);
+    min-width: min(92vw, 360px);
+    padding: max(18px, env(safe-area-inset-top, 0px)) 12px 18px;
+  }
+
   .composer-input {
-    min-height: 72px;
+    min-height: 64px;
   }
 
   .attachment-name {
     max-width: 44vw;
+  }
+
+  .guide-me-panel,
+  .feedback-modal,
+  .settings-modal {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .guide-me-question,
+  .guide-me-guidance,
+  .guide-me-options,
+  .guide-me-final,
+  .guide-me-busy-status,
+  .guide-me-preview-modal {
+    padding: 12px;
+  }
+
+  .settings-modal-backdrop,
+  .modal-backdrop {
+    padding: 10px;
+  }
+
+  .guide-me-panel-title,
+  .feedback-modal-title,
+  .settings-modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .score-chip-value {
+    font-size: 0.9rem;
   }
 }
