@@ -180,6 +180,9 @@ class TransformerMetadata(BaseModel):
     transformation_applied: bool = True
     bypass_reason: str | None = None
     rules_applied: list[str] = Field(default_factory=list)
+    retrieval_used: bool = False
+    retrieval_scope_counts: dict[str, int] = Field(default_factory=dict)
+    retrieval_document_count: int = 0
     result_type: Literal["transformed", "coaching", "blocked"] = "transformed"
     coaching_tip: str | None = None
     blocking_message: str | None = None

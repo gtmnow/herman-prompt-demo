@@ -86,6 +86,9 @@ class FakeTransformerClient:
                 "transformation_applied": True,
                 "bypass_reason": None,
                 "rules_applied": ["persona:answer_first:enabled"],
+                "retrieval_used": True,
+                "retrieval_scope_counts": {"tenant": 0, "user": 2},
+                "retrieval_document_count": 1,
             },
         }
 
@@ -129,6 +132,9 @@ class ChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.metadata.transformer.execution_owner, "transformer")
         self.assertEqual(response.metadata.transformer.result_type, "transformed")
         self.assertEqual(response.metadata.transformer.scoring.final_score, 90)
+        self.assertTrue(response.metadata.transformer.retrieval_used)
+        self.assertEqual(response.metadata.transformer.retrieval_scope_counts, {"tenant": 0, "user": 2})
+        self.assertEqual(response.metadata.transformer.retrieval_document_count, 1)
 
 
 if __name__ == "__main__":

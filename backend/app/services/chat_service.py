@@ -70,6 +70,9 @@ class ChatService:
         used_fallback_model = transformer_metadata.get("used_fallback_model", False)
         used_authoritative_tenant_llm = transformer_metadata.get("used_authoritative_tenant_llm", False)
         rules_applied = transformer_metadata.get("rules_applied", [])
+        retrieval_used = transformer_metadata.get("retrieval_used", False)
+        retrieval_scope_counts = transformer_metadata.get("retrieval_scope_counts", {})
+        retrieval_document_count = transformer_metadata.get("retrieval_document_count", 0)
         execution_owner = transformer_metadata.get("execution_owner", "transformer")
         transformation_applied = transformer_metadata.get("transformation_applied", transformer_result_type == "transformed")
         bypass_reason = transformer_metadata.get("bypass_reason")
@@ -140,6 +143,9 @@ class ChatService:
                     transformation_applied=transformation_applied,
                     bypass_reason=bypass_reason,
                     rules_applied=rules_applied,
+                    retrieval_used=retrieval_used,
+                    retrieval_scope_counts=retrieval_scope_counts,
+                    retrieval_document_count=retrieval_document_count,
                     result_type=transformer_result_type,
                     coaching_tip=coaching_tip,
                     blocking_message=blocking_message,
