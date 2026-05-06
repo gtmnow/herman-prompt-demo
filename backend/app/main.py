@@ -2,15 +2,26 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 from app.api.routes import router
 from app.core.config import settings
 from app.db.session import initialize_database
+from app.schema_contract import SchemaContractError
+
+
+logger = logging.getLogger("herman_prompt.main")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    initialize_database()
+    try:
+        initialize_database()
+    except SchemaContractError:
+        logger.warning(
+            "Schema contract validation failed during startup; continuing with shared DB ownership model.",
+            exc_info=True,
+        )
     yield
 
 
