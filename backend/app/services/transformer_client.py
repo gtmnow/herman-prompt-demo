@@ -186,6 +186,14 @@ class TransformerClient:
             normalized = _normalize_execute_chat_error_payload(exc.payload)
             if normalized is not None:
                 return normalized
+            fallback = _build_enforcement_fallback_execute_result(
+                error=exc,
+                conversation_id=conversation_id,
+                raw_prompt=raw_prompt,
+                enforcement_level=enforcement_level,
+            )
+            if fallback is not None:
+                return fallback
             raise
 
     async def generate_guide_me_helper(
@@ -389,6 +397,72 @@ def _normalize_result_type(value: Any) -> str | None:
     return None
 
 
+def _build_enforcement_fallback_execute_result(
+    *,
+    error: PromptTransformerRequestError,
+    conversation_id: str,
+    raw_prompt: str,
+    enforcement_level: str | None,
+) -> dict[str, Any] | None:
+    normalized_enforcement_level = _normalize_enforcement_level(enforcement_level, fallback="none")
+    if normalized_enforcement_level not in {"moderate", "full"}:
+        return None
+    if error.status_code is not None and error.status_code < 500:
+        return None
+
+    result_type = "blocked" if normalized_enforcement_level == "full" else "coaching"
+    missing_fields = [
+        key
+        for key in ("who", "task", "context", "output")
+        if not _has_explicit_label(raw_prompt, key)
+    ]
+    conversation = {
+        "conversation_id": conversation_id,
+        "requirements": {
+            key: {
+                "value": None,
+                "status": "missing" if key in missing_fields else "derived",
+                "heuristic_score": None,
+                "llm_score": None,
+                "max_score": None,
+                "reason": None,
+                "improvement_hint": None,
+            }
+            for key in ("who", "task", "context", "output")
+        },
+        "enforcement": {
+            "level": normalized_enforcement_level,
+            "status": "blocked" if result_type == "blocked" else "needs_coaching",
+            "missing_fields": missing_fields,
+            "last_evaluated_at": None,
+        },
+    }
+    fallback_message = (
+        "Your prompt needs improvement before it can be submitted under "
+        f"{normalized_enforcement_level} coaching enforcement. "
+        "Open Guide Me to strengthen the prompt and try again."
+    )
+    return {
+        "result_type": result_type,
+        "task_type": "unknown",
+        "transformed_prompt": "",
+        "assistant_text": fallback_message,
+        "assistant_images": [],
+        "coaching_tip": fallback_message if result_type == "coaching" else None,
+        "blocking_message": fallback_message if result_type == "blocked" else None,
+        "conversation": conversation,
+        "findings": [],
+        "scoring": None,
+        "metadata": {
+            "execution_owner": "transformer",
+            "transformation_applied": False,
+            "bypass_reason": "transformer_enforcement_fallback",
+            "result_type": result_type,
+            "raw_error": str(error),
+        },
+    }
+
+
 def _default_enforcement_message(
     *,
     result_type: str,
@@ -404,6 +478,17 @@ def _default_enforcement_message(
     if isinstance(final_score, int):
         return f"Your prompt needs improvement before it can be submitted because its prompt score is {final_score}. Open Guide Me to repair it and try again."
     return "Your prompt needs improvement before it can be submitted. Open Guide Me to repair it and try again."
+
+
+def _has_explicit_label(raw_user_text: str, key: str) -> bool:
+    normalized = raw_user_text.lower()
+    label_map = {
+        "who": "who:",
+        "task": "task:",
+        "context": "context:",
+        "output": "output:",
+    }
+    return label_map[key] in normalized
 
 
 def _normalize_transformer_conversation(

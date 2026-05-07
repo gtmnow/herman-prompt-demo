@@ -161,6 +161,72 @@ class TransformerClientExecuteChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["conversation"]["enforcement"]["level"], "full")
         self.assertEqual(payload["scoring"]["final_score"], 62)
 
+    async def test_execute_chat_falls_back_to_blocked_for_full_enforcement_on_raw_500(self) -> None:
+        client = TransformerClient()
+
+        async def raise_error(*args, **kwargs):
+            raise PromptTransformerRequestError(
+                "Prompt Transformer request failed: 500 Internal Server Error",
+                status_code=500,
+                payload={"detail": "Internal Server Error"},
+            )
+
+        with patch.object(client, "_request", side_effect=raise_error):
+            payload = await client.execute_chat(
+                runtime_config=SimpleNamespace(provider="openai", model="gpt-5"),
+                session_id="session_123",
+                conversation_id="conv_123",
+                user_id_hash="user_hash_1",
+                raw_prompt="help",
+                conversation_history=[],
+                attachments=[],
+                conversation=None,
+                summary_type=None,
+                enforcement_level="full",
+                transform_enabled=True,
+            )
+
+        self.assertEqual(payload["result_type"], "blocked")
+        self.assertIn("full coaching enforcement", payload["assistant_text"])
+        self.assertEqual(payload["conversation"]["enforcement"]["status"], "blocked")
+        self.assertEqual(
+            payload["conversation"]["enforcement"]["missing_fields"],
+            ["who", "task", "context", "output"],
+        )
+
+    async def test_execute_chat_falls_back_to_coaching_for_moderate_enforcement_on_raw_500(self) -> None:
+        client = TransformerClient()
+
+        async def raise_error(*args, **kwargs):
+            raise PromptTransformerRequestError(
+                "Prompt Transformer request failed: 500 Internal Server Error",
+                status_code=500,
+                payload={"detail": "Internal Server Error"},
+            )
+
+        with patch.object(client, "_request", side_effect=raise_error):
+            payload = await client.execute_chat(
+                runtime_config=SimpleNamespace(provider="openai", model="gpt-5"),
+                session_id="session_123",
+                conversation_id="conv_123",
+                user_id_hash="user_hash_1",
+                raw_prompt="Who: Hiring manager\n\nTask: Rewrite this job post",
+                conversation_history=[],
+                attachments=[],
+                conversation=None,
+                summary_type=None,
+                enforcement_level="moderate",
+                transform_enabled=True,
+            )
+
+        self.assertEqual(payload["result_type"], "coaching")
+        self.assertIn("moderate coaching enforcement", payload["assistant_text"])
+        self.assertEqual(payload["conversation"]["enforcement"]["status"], "needs_coaching")
+        self.assertEqual(
+            payload["conversation"]["enforcement"]["missing_fields"],
+            ["context", "output"],
+        )
+
 
 class TransformerClientTimeoutTests(unittest.IsolatedAsyncioTestCase):
     async def test_request_handles_timeout_errors(self) -> None:
