@@ -77,7 +77,13 @@ class ChatService:
         transformation_applied = transformer_metadata.get("transformation_applied", transformer_result_type == "transformed")
         bypass_reason = transformer_metadata.get("bypass_reason")
         transformed_prompt = executed.get("transformed_prompt", "") or ""
-        assistant_text = executed.get("assistant_text", "")
+        assistant_text = _resolve_assistant_text(
+            result_type=transformer_result_type,
+            assistant_text=executed.get("assistant_text"),
+            coaching_tip=coaching_tip,
+            blocking_message=blocking_message,
+            scoring=transformer_scoring,
+        )
         assistant_images = list(executed.get("assistant_images") or [])
 
         if transformer_result_type == "coaching":
@@ -306,3 +312,32 @@ def _example_for_first_failing_requirement(raw_user_text: str, transformer_conve
         "output": "Output: Respond in this chat with a short summary followed by 4 to 5 supporting bullet points in plain language for a 10-year-old.",
     }
     return examples.get(failing_key) if failing_key else None
+
+
+def _resolve_assistant_text(
+    *,
+    result_type: str,
+    assistant_text: str | None,
+    coaching_tip: str | None,
+    blocking_message: str | None,
+    scoring: dict | None,
+) -> str:
+    normalized_assistant_text = assistant_text.strip() if isinstance(assistant_text, str) else ""
+    if normalized_assistant_text:
+        return normalized_assistant_text
+
+    if result_type == "coaching":
+        if isinstance(coaching_tip, str) and coaching_tip.strip():
+            return coaching_tip.strip()
+    if result_type == "blocked":
+        if isinstance(blocking_message, str) and blocking_message.strip():
+            return blocking_message.strip()
+        final_score = scoring.get("final_score") if isinstance(scoring, dict) else None
+        if isinstance(final_score, int):
+            return (
+                "Your prompt needs improvement before it can be submitted "
+                f"because its prompt score is {final_score}. Open Guide Me to repair it and try again."
+            )
+        return "Your prompt needs improvement before it can be submitted. Open Guide Me to repair it and try again."
+
+    return ""

@@ -103,13 +103,13 @@ export function Transcript({
                     ? "Safety Check"
                     : "Assistant"}
               </div>
-              {turn.assistantKind === "coaching" ? (
+              {turn.assistantKind === "coaching" || turn.assistantKind === "blocked" ? (
                 <button className="guide-me-inline-button" type="button" onClick={() => onOpenGuideMe(turn.userText)}>
                   Guide Me
                 </button>
               ) : null}
             </div>
-            {turn.assistantKind === "coaching" ? (
+            {turn.assistantKind === "coaching" || turn.assistantKind === "blocked" ? (
               <CoachingIndicators requirements={turn.coachingRequirements} />
             ) : null}
             <div className="message-body">

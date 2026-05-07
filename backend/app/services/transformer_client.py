@@ -8,6 +8,19 @@ from app.services.conversation_store import StoredTurn
 from app.services.runtime_llm import RuntimeLlmConfig
 
 
+class PromptTransformerRequestError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.payload = payload
+
+
 class TransformerClient:
     async def _request(
         self,
@@ -49,7 +62,11 @@ class TransformerClient:
 
         if response.status_code >= 400:
             detail = _extract_error_detail(response)
-            raise RuntimeError(f"Prompt Transformer request failed: {response.status_code} {detail}")
+            raise PromptTransformerRequestError(
+                f"Prompt Transformer request failed: {response.status_code} {detail}",
+                status_code=response.status_code,
+                payload=_extract_json_payload(response),
+            )
 
         return response.json()
 
@@ -163,7 +180,13 @@ class TransformerClient:
             payload["summary_type"] = summary_type
         if enforcement_level is not None:
             payload["enforcement_level"] = enforcement_level
-        return await self._request("POST", "/api/chat/execute", json=payload)
+        try:
+            return await self._request("POST", "/api/chat/execute", json=payload)
+        except PromptTransformerRequestError as exc:
+            normalized = _normalize_execute_chat_error_payload(exc.payload)
+            if normalized is not None:
+                return normalized
+            raise
 
     async def generate_guide_me_helper(
         self,
@@ -252,11 +275,7 @@ class TransformerClient:
 
 
 def _extract_error_detail(response: httpx.Response) -> str:
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-
+    payload = _extract_json_payload(response)
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, str) and detail.strip():
@@ -280,6 +299,111 @@ def _extract_error_detail(response: httpx.Response) -> str:
 
     text = response.text.strip()
     return text[:300] if text else "no detail returned"
+
+
+def _extract_json_payload(response: httpx.Response) -> dict[str, Any] | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _normalize_execute_chat_error_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+
+    candidates = [payload]
+    detail = payload.get("detail")
+    if isinstance(detail, dict):
+        candidates.append(detail)
+
+    for candidate in candidates:
+        result_type = _normalize_result_type(candidate.get("result_type"))
+        conversation = candidate.get("conversation")
+        normalized_conversation = _normalize_transformer_conversation(
+            conversation,
+            conversation_id=_extract_conversation_id(candidate, conversation),
+            enforcement_level=_extract_enforcement_level(candidate, conversation),
+        )
+        enforcement_status = normalized_conversation["enforcement"]["status"]
+        if result_type is None:
+            if enforcement_status == "blocked":
+                result_type = "blocked"
+            elif enforcement_status == "needs_coaching":
+                result_type = "coaching"
+        if result_type is None:
+            continue
+
+        message = _normalize_optional_str(candidate.get("assistant_text"))
+        coaching_tip = _normalize_optional_str(candidate.get("coaching_tip"))
+        blocking_message = _normalize_optional_str(candidate.get("blocking_message"))
+        findings = candidate.get("findings")
+        scoring = candidate.get("scoring") if isinstance(candidate.get("scoring"), dict) else None
+        metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), dict) else {}
+
+        return {
+            "result_type": result_type,
+            "task_type": _normalize_optional_str(candidate.get("task_type")) or "unknown",
+            "transformed_prompt": _normalize_optional_str(candidate.get("transformed_prompt")) or "",
+            "assistant_text": message
+            or _default_enforcement_message(
+                result_type=result_type,
+                scoring=scoring,
+                coaching_tip=coaching_tip,
+                blocking_message=blocking_message,
+            ),
+            "assistant_images": [],
+            "coaching_tip": coaching_tip,
+            "blocking_message": blocking_message,
+            "conversation": normalized_conversation,
+            "findings": findings if isinstance(findings, list) else [],
+            "scoring": scoring,
+            "metadata": metadata,
+        }
+
+    return None
+
+
+def _extract_conversation_id(candidate: dict[str, Any], conversation: Any) -> str:
+    if isinstance(conversation, dict):
+        conversation_id = _normalize_optional_str(conversation.get("conversation_id"))
+        if conversation_id:
+            return conversation_id
+    return _normalize_optional_str(candidate.get("conversation_id")) or ""
+
+
+def _extract_enforcement_level(candidate: dict[str, Any], conversation: Any) -> str | None:
+    if isinstance(conversation, dict):
+        raw_enforcement = conversation.get("enforcement")
+        if isinstance(raw_enforcement, dict):
+            level = _normalize_optional_str(raw_enforcement.get("level"))
+            if level:
+                return level
+    return _normalize_optional_str(candidate.get("enforcement_level"))
+
+
+def _normalize_result_type(value: Any) -> str | None:
+    if value in {"transformed", "coaching", "blocked"}:
+        return value
+    return None
+
+
+def _default_enforcement_message(
+    *,
+    result_type: str,
+    scoring: dict[str, Any] | None,
+    coaching_tip: str | None,
+    blocking_message: str | None,
+) -> str:
+    preferred_message = blocking_message if result_type == "blocked" else coaching_tip
+    if preferred_message:
+        return preferred_message
+
+    final_score = scoring.get("final_score") if isinstance(scoring, dict) else None
+    if isinstance(final_score, int):
+        return f"Your prompt needs improvement before it can be submitted because its prompt score is {final_score}. Open Guide Me to repair it and try again."
+    return "Your prompt needs improvement before it can be submitted. Open Guide Me to repair it and try again."
 
 
 def _normalize_transformer_conversation(

@@ -93,6 +93,60 @@ class FakeTransformerClient:
         }
 
 
+class FakeBlockedTransformerClient:
+    async def execute_chat(self, **kwargs) -> dict:
+        return {
+            "result_type": "blocked",
+            "task_type": "analysis",
+            "transformed_prompt": "",
+            "assistant_text": "",
+            "assistant_images": [],
+            "coaching_tip": None,
+            "blocking_message": "Prompt score is too low for full coaching.",
+            "conversation": {
+                "conversation_id": kwargs["conversation_id"],
+                "requirements": {
+                    "who": {"status": "missing"},
+                    "task": {"status": "present"},
+                    "context": {"status": "missing"},
+                    "output": {"status": "missing"},
+                },
+                "enforcement": {
+                    "level": "full",
+                    "status": "blocked",
+                    "missing_fields": ["who", "context", "output"],
+                    "last_evaluated_at": None,
+                },
+            },
+            "findings": [],
+            "scoring": {
+                "scoring_version": "v1",
+                "initial_score": 62,
+                "final_score": 62,
+                "initial_llm_score": 62,
+                "final_llm_score": 62,
+                "structural_score": 40,
+            },
+            "metadata": {
+                "execution_owner": "transformer",
+                "persona_source": "db_profile",
+                "profile_version": "v1",
+                "requested_provider": "openai",
+                "requested_model": "gpt-5",
+                "resolved_provider": "openai",
+                "resolved_model": "gpt-5",
+                "used_fallback_model": False,
+                "used_authoritative_tenant_llm": False,
+                "transformation_applied": False,
+                "bypass_reason": None,
+                "rules_applied": [],
+                "retrieval_used": False,
+                "retrieval_scope_counts": {},
+                "retrieval_document_count": 0,
+            },
+        }
+
+
 class ChatServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_turn_uses_transformer_owned_execution_result(self) -> None:
         service = ChatService()
@@ -135,6 +189,46 @@ class ChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.metadata.transformer.retrieval_used)
         self.assertEqual(response.metadata.transformer.retrieval_scope_counts, {"tenant": 0, "user": 2})
         self.assertEqual(response.metadata.transformer.retrieval_document_count, 1)
+
+    async def test_send_turn_returns_blocked_turn_instead_of_empty_message(self) -> None:
+        service = ChatService()
+        service.transformer_client = FakeBlockedTransformerClient()
+        service.conversation_service = FakeConversationService()
+        service.runtime_llm_resolver.resolve_for_user = lambda user: RuntimeLlmConfig(
+            tenant_id="tenant_1",
+            user_id_hash=user.user_id_hash,
+            provider="openai",
+            model="gpt-5",
+            endpoint_url=None,
+            api_key="test-key",
+            transformation_enabled=True,
+            scoring_enabled=True,
+            credential_status="valid",
+            source_kind="test",
+        )
+        user = AuthenticatedUser(
+            external_user_id="user_1",
+            user_id_hash="user_hash_1",
+            display_name="Test User",
+            tenant_id="tenant_1",
+            auth_mode="demo",
+        )
+
+        response = await service.send_turn(
+            ChatSendRequest(
+                conversation_id="conv_123",
+                message_text="Explain the answer.",
+            ),
+            user=user,
+        )
+
+        self.assertEqual(response.metadata.transformer.result_type, "blocked")
+        self.assertEqual(response.assistant_message.text, "Prompt score is too low for full coaching.")
+        self.assertEqual(service.conversation_service.last_append["assistant_kind"], "blocked")
+        self.assertEqual(
+            service.conversation_service.last_append["coaching_requirements"]["who"]["state"],
+            "missing",
+        )
 
 
 if __name__ == "__main__":
